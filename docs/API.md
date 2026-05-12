@@ -37,6 +37,8 @@ let mut engine = DatabaseEngine::open_with_default_engine("./mydb".as_ref(), "me
 | `create_table(name, columns, engine)` | Create a new table |
 | `alter_table_engine(name, engine)` | Migrate a table to another engine |
 | `drop_table(name)` | Drop a table |
+| `explain(sql)` | Run `EXPLAIN` and return the planned output |
+| `explain_analyze(sql)` | Run `EXPLAIN ANALYZE` and execute the statement |
 | `create_user(username, password)` | Create a new database user |
 | `drop_user(username)` | Drop a user |
 | `alter_user_password(username, password)` | Change user password |
@@ -88,17 +90,17 @@ The type system:
 
 ```rust
 pub enum DataType {
-    Boolean, SmallInt, Integer, BigInt, Real, Double,
+    Boolean, SmallInt, UnsignedSmallInt, Integer, UnsignedInteger, BigInt, UnsignedBigInt, Real, Double,
     VarChar(Option<usize>), Char(Option<usize>), Text,
-    Binary, Date, Time, Timestamp, TimestampTz, Uuid, Null,
+    Binary, Date, Time, Timestamp, TimestampTz, Uuid, UuidV7, Null,
 }
 
 pub enum Datum {
-    Boolean(bool), SmallInt(i16), Integer(i32), BigInt(i64),
+    Boolean(bool), SmallInt(i16), UnsignedSmallInt(u16), Integer(i32), UnsignedInteger(u32), BigInt(i64), UnsignedBigInt(u64),
     Real(f32), Double(f64), VarChar(String), Char(String),
     Text(String), Binary(Vec<u8>), Date(NaiveDate),
     Time(NaiveTime), Timestamp(NaiveDateTime),
-    TimestampTz(i64), Uuid(uuid::Uuid), Null,
+    TimestampTz(i64), Uuid(uuid::Uuid), UuidV7([u8; 16]), Null,
 }
 ```
 
@@ -173,6 +175,7 @@ let logical_plan = plan(&stmts[0], &engine.get_tables().await)?;
 - `SELECT [cols|*] FROM name [WHERE expr] [ORDER BY col [ASC|DESC]] [LIMIT n] [OFFSET n]`
 - `UPDATE name SET col = val [, ...] [WHERE expr]`
 - `DELETE FROM name [WHERE expr]`
+- `EXPLAIN [ANALYZE] statement`
 - `CREATE USER name [WITH] PASSWORD '...'`
 - `DROP USER [IF EXISTS] name`
 - `ALTER USER name [WITH] PASSWORD '...'`
@@ -210,6 +213,7 @@ let logical_plan = plan(&stmts[0], &engine.get_tables().await)?;
 | `IFNULL(val, default)` | Null coalescing |
 | `ABS(num)` | Absolute value |
 | `ROUND(num, decimals)` | Round to decimals |
+| `UUIDV7()` | Generate a sortable UUIDv7 value |
 
 ### Supported Data Types
 
@@ -219,6 +223,9 @@ let logical_plan = plan(&stmts[0], &engine.get_tables().await)?;
 | `SMALLINT` | `i16` |
 | `INTEGER` / `INT` | `i32` |
 | `BIGINT` | `i64` |
+| `U_SMALLINT` | `u16` |
+| `U_INTEGER` | `u32` |
+| `U_BIGINT` | `u64` |
 | `REAL` | `f32` |
 | `DOUBLE` / `FLOAT` | `f64` |
 | `VARCHAR(n)` / `VARCHAR` | `String` |
@@ -228,6 +235,7 @@ let logical_plan = plan(&stmts[0], &engine.get_tables().await)?;
 | `TIME` | `NaiveTime` |
 | `TIMESTAMP` | `NaiveDateTime` |
 | `UUID` | `uuid::Uuid` |
+| `UUIDV7` | `[u8; 16]` |
 
 Implicit type coercion is supported between numeric types (`INTEGER ↔ BIGINT ↔ DOUBLE`) and string types (`TEXT ↔ VARCHAR ↔ CHAR`).
 

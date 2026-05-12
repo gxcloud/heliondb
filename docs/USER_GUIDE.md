@@ -158,6 +158,10 @@ UPDATE users SET email = 'new@example.com' WHERE id = 1;
 
 -- Delete
 DELETE FROM users WHERE id = 2;
+
+-- Explain
+EXPLAIN SELECT * FROM users WHERE age > 18;
+EXPLAIN ANALYZE SELECT * FROM users WHERE age > 18;
 ```
 
 ### User Management
@@ -227,8 +231,14 @@ REVOKE ALL ON users FROM alice;
 | `TIME` | 00:00:00 to 23:59:59 | |
 | `TIMESTAMP` | 1000-01-01 to 9999-12-31 | |
 | `UUID` | Standard UUID | |
+| `UUIDV7` | Sortable UUIDv7 bytes | Generated with `UUIDV7()` |
+| `U_SMALLINT` | 0 to 65,535 | Unsigned 16-bit integer |
+| `U_INTEGER` | 0 to 4,294,967,295 | Unsigned 32-bit integer |
+| `U_BIGINT` | 0 to 18,446,744,073,709,551,615 | Unsigned 64-bit integer |
 
 Implicit conversions between numeric types and between string types are automatic.
+
+`UUIDV7()` returns a new sortable UUIDv7 value for `UUIDV7` columns.
 
 ## Constraints
 

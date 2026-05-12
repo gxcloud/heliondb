@@ -27,6 +27,7 @@ HelionDB is a SQL database designed for speed. Tables can live in RAM or on disk
 | `CREATE TABLE ... ENGINE = memory|disk` | ✅ |
 | `DROP TABLE` | ✅ |
 | `ALTER TABLE ... ENGINE = memory|disk` | ✅ |
+| `EXPLAIN` / `EXPLAIN ANALYZE` | ✅ |
 | `INSERT INTO ... VALUES` | ✅ |
 | `SELECT ... FROM ... WHERE` | ✅ |
 | `UPDATE ... SET ... WHERE` | ✅ |
@@ -35,8 +36,9 @@ HelionDB is a SQL database designed for speed. Tables can live in RAM or on disk
 | `WHERE` expressions (`=`, `<`, `>`, `AND`, `OR`, `IN`, `BETWEEN`, `LIKE`, `IS NULL`) | ✅ |
 | Aggregate functions (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) | ✅ |
 | Scalar functions (`LOWER`, `UPPER`, `LENGTH`, `COALESCE`, `IFNULL`, `ABS`, `ROUND`) | ✅ |
+| `UUIDV7()` | ✅ |
 | `PRIMARY KEY`, `NOT NULL`, `UNIQUE` | ✅ |
-| Implicit type coercion (Integer/BigInt, Text/VarChar, etc.) | ✅ |
+| Implicit type coercion (signed/unsigned numeric, Text/VarChar, etc.) | ✅ |
 | Transactions (`BEGIN`/`COMMIT`/`ROLLBACK`) | ✅ |
 | MVCC snapshot isolation | ✅ |
 | Subqueries, CTEs, JOINs | 🔜 |
@@ -60,6 +62,10 @@ HelionDB is a SQL database designed for speed. Tables can live in RAM or on disk
 | `TIME` | `NaiveTime` |
 | `TIMESTAMP` | `NaiveDateTime` |
 | `UUID` | `uuid::Uuid` |
+| `UUIDV7` | sortable 128-bit UUID bytes |
+| `U_SMALLINT` | `u16` |
+| `U_INTEGER` | `u32` |
+| `U_BIGINT` | `u64` |
 | `NULL` | - |
 
 ## Quick Start

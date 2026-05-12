@@ -96,9 +96,10 @@ A background task runs every 60 seconds (configurable) and writes a `Checkpoint`
 **File**: `src/sql/parser.rs`
 
 - **Primary**: Uses `sqlparser-rs` with `PostgreSqlDialect` for standard SQL.
-- **Custom Fallback**: For non-standard statements (`CREATE USER`, `GRANT`, `CREATE TABLE ... ENGINE`, `ALTER TABLE ... ENGINE`, etc.), a custom parser handles the dialect.
+- **Custom Fallback**: For non-standard statements (`CREATE USER`, `GRANT`, `EXPLAIN`, `CREATE TABLE ... ENGINE`, `ALTER TABLE ... ENGINE`, etc.), a custom parser handles the dialect.
 - **AST**: Parsed statements are converted to `HelionStatement` enum variants.
 - **Expressions**: Full expression tree with `BinaryOp`, `UnaryOp`, `Literal`, `Column`, `Function`, `IsNull`, `IsNotNull`, `In`, `Between`, `Like`.
+- **Types**: Custom SQL type names include `U_SMALLINT`, `U_INTEGER`, `U_BIGINT`, and `UUIDV7`.
 
 ### Planner
 
@@ -117,7 +118,8 @@ A background task runs every 60 seconds (configurable) and writes a `Checkpoint`
 
 - Recursive expression evaluation against a row of data
 - Supports: comparisons, arithmetic, logical ops, `IS NULL`, `IN`, `BETWEEN`, `LIKE`
-- Built-in functions: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `LOWER`, `UPPER`, `LENGTH`, `COALESCE`, `IFNULL`, `ABS`, `ROUND`
+- Built-in functions: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `LOWER`, `UPPER`, `LENGTH`, `COALESCE`, `IFNULL`, `ABS`, `ROUND`, `UUIDV7`
+- Numeric comparison/arithmetic handles signed and unsigned integer datums
 
 ### Physical Operators
 
@@ -125,7 +127,7 @@ A background task runs every 60 seconds (configurable) and writes a `Checkpoint`
 
 - **`execute(engine, plan)`**: Executes a plan without permission checks (embedded library use).
 - **`execute_as(engine, plan, current_user)`**: Executes with column-level permission checks.
-- Operations: `CREATE TABLE`, `DROP TABLE`, `ALTER TABLE ... ENGINE`, `INSERT`, `SELECT` (with WHERE/ORDER BY/LIMIT/OFFSET), `UPDATE`, `DELETE`
+- Operations: `CREATE TABLE`, `DROP TABLE`, `ALTER TABLE ... ENGINE`, `EXPLAIN`, `INSERT`, `SELECT` (with WHERE/ORDER BY/LIMIT/OFFSET), `UPDATE`, `DELETE`
 - User operations: `CREATE USER`, `DROP USER`, `ALTER USER`, `GRANT`, `REVOKE`
 
 ## Layer 4: Server & Protocol
