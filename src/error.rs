@@ -37,6 +37,12 @@ pub enum HelionError {
     #[error("Protocol error: {0}")]
     Protocol(String),
 
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
+
+    #[error("Authentication error: {0}")]
+    Auth(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }

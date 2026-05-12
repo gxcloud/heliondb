@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::error::{HelionError, Result};
+use crate::storage::permissions::Permission;
 use crate::storage::types::{ColumnMeta, Row};
 use crate::storage::table::Table;
 
@@ -19,6 +20,10 @@ pub enum WalRecord {
     Delete { table: String, row_idx: usize, txid: u64 },
     Commit { txid: u64 },
     Checkpoint { table_count: u32, tables: Vec<(String, Vec<ColumnMeta>, Vec<Vec<RowVersion>>)> },
+    CreateUser { username: String, password_hash: String },
+    DropUser { username: String },
+    Grant { username: String, table: String, permission: Permission },
+    Revoke { username: String, table: String, permission: Permission },
 }
 
 pub use crate::storage::table::RowVersion;
@@ -164,6 +169,13 @@ fn apply_wal_record(tables: &mut Vec<Table>, record: WalRecord) {
                     t
                 })
                 .collect();
+        }
+        WalRecord::CreateUser { .. }
+        | WalRecord::DropUser { .. }
+        | WalRecord::Grant { .. }
+        | WalRecord::Revoke { .. } => {
+            // These are handled by the engine on replay, not during WAL replay
+            // (the engine stores users/permissions separately from tables)
         }
     }
 }

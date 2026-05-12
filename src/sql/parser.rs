@@ -37,6 +37,39 @@ pub enum HelionStatement {
         table_name: String,
         where_clause: Option<Expression>,
     },
+    CreateUser {
+        username: String,
+        password: String,
+    },
+    DropUser {
+        username: String,
+        if_exists: bool,
+    },
+    AlterUser {
+        username: String,
+        password: String,
+    },
+    Grant {
+        username: String,
+        table: String,
+        columns: Vec<String>,
+        permission_type: GrantPermissionType,
+    },
+    Revoke {
+        username: String,
+        table: String,
+        columns: Vec<String>,
+        permission_type: GrantPermissionType,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GrantPermissionType {
+    Select,
+    Insert,
+    Update,
+    Delete,
+    All,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -104,9 +137,195 @@ pub enum UnaryOperator {
 
 /// Parse SQL string into a vector of HelionStatement.
 pub fn parse(sql: &str) -> Result<Vec<HelionStatement>> {
+    // First try sqlparser
     let dialect = PostgreSqlDialect {};
-    let statements = SqlParser::parse_sql(&dialect, sql)?;
-    statements.into_iter().map(convert_statement).collect()
+    if let Ok(statements) = SqlParser::parse_sql(&dialect, sql) {
+        let mut result = Vec::new();
+        for stmt in statements {
+            match convert_statement(stmt) {
+                Ok(s) => result.push(s),
+                Err(_e) => {
+                    return parse_custom(sql);
+                }
+            }
+        }
+        return Ok(result);
+    }
+
+    // Fallback: custom parser for non-standard statements
+    parse_custom(sql)
+}
+
+fn parse_custom(sql: &str) -> Result<Vec<HelionStatement>> {
+    let sql = sql.trim().trim_end_matches(';');
+    let upper = sql.to_uppercase().trim().to_string();
+
+    if upper.starts_with("CREATE USER ") || upper.starts_with("CREATE USER IF NOT EXISTS ") {
+        let exists = upper.contains("IF NOT EXISTS");
+        let stripped = if exists {
+            sql.strip_prefix("CREATE USER IF NOT EXISTS").or_else(|| sql.strip_prefix("create user if not exists"))
+        } else {
+            sql.strip_prefix("CREATE USER").or_else(|| sql.strip_prefix("create user"))
+        }.unwrap_or("").trim();
+
+        let (username, password) = parse_user_with_password(stripped)?;
+        if exists && find_user_in_stmt(&username) {
+            return Ok(vec![]); // no-op
+        }
+        return Ok(vec![HelionStatement::CreateUser { username, password }]);
+    }
+
+    if upper.starts_with("DROP USER ") || upper.starts_with("DROP USER IF EXISTS ") {
+        let if_exists = upper.contains("IF EXISTS");
+        let stripped = if if_exists {
+            sql.strip_prefix("DROP USER IF EXISTS").or_else(|| sql.strip_prefix("drop user if exists"))
+        } else {
+            sql.strip_prefix("DROP USER").or_else(|| sql.strip_prefix("drop user"))
+        }.unwrap_or("").trim().trim_end_matches(';').trim();
+        let username = stripped.to_string();
+        return Ok(vec![HelionStatement::DropUser { username, if_exists }]);
+    }
+
+    if upper.starts_with("ALTER USER ") {
+        let stripped = sql.strip_prefix("ALTER USER").or_else(|| sql.strip_prefix("alter user"))
+            .unwrap_or("").trim();
+        let (username, password) = parse_user_with_password(stripped)?;
+        return Ok(vec![HelionStatement::AlterUser { username, password }]);
+    }
+
+    if upper.starts_with("GRANT ") {
+        return parse_grant_revoke(sql, true);
+    }
+
+    if upper.starts_with("REVOKE ") {
+        return parse_grant_revoke(sql, false);
+    }
+
+    Err(HelionError::Parse(format!("Unsupported SQL: {}", sql)))
+}
+
+fn parse_user_with_password(s: &str) -> Result<(String, String)> {
+    let s = s.trim().trim_end_matches(';').trim();
+    let upper = s.to_uppercase();
+
+    // Try "WITH PASSWORD" first (more specific)
+    let keywords = [" WITH PASSWORD ", " PASSWORD "];
+    for kw in &keywords {
+        if let Some(pos) = upper.find(kw) {
+            let username = s[..pos].trim().to_string();
+            let rest = s[pos + kw.len()..].trim().trim_end_matches(';').trim();
+            let password = if rest.starts_with('\'') {
+                let end = rest[1..].find('\'').map(|i| i + 1).unwrap_or(rest.len());
+                rest[1..end].to_string()
+            } else {
+                rest.split_whitespace().next().unwrap_or(rest).to_string()
+            };
+            return Ok((username, password));
+        }
+    }
+
+    Err(HelionError::Parse("Expected PASSWORD clause in user statement".into()))
+}
+
+fn find_user_in_stmt(_username: &str) -> bool {
+    // Simplified: we don't have user store access from the parser
+    false
+}
+
+fn parse_grant_revoke(sql: &str, is_grant: bool) -> Result<Vec<HelionStatement>> {
+    let action = if is_grant { "GRANT" } else { "REVOKE" };
+    let upper = sql.to_uppercase();
+    let action_upper = if is_grant { "GRANT" } else { "REVOKE" };
+
+    // Find where the action keyword ends, case-insensitively
+    let rest = if let Some(pos) = upper.find(action_upper) {
+        sql[pos + action_upper.len()..].trim()
+    } else {
+        return Err(HelionError::Parse(format!("Expected {} keyword", action)));
+    };
+    let upper_rest = rest.to_uppercase();
+
+    let (perm_type, rest) = if upper_rest.starts_with("ALL") {
+        (GrantPermissionType::All, rest[3..].trim())
+    } else if upper_rest.starts_with("SELECT") {
+        (GrantPermissionType::Select, rest[6..].trim())
+    } else if upper_rest.starts_with("INSERT") {
+        (GrantPermissionType::Insert, rest[6..].trim())
+    } else if upper_rest.starts_with("UPDATE") {
+        (GrantPermissionType::Update, rest[6..].trim())
+    } else if upper_rest.starts_with("DELETE") {
+        (GrantPermissionType::Delete, rest[6..].trim())
+    } else {
+        return Err(HelionError::Parse(format!("Unknown permission type in {}: {}", action, rest)));
+    };
+
+    // Extract column list if present: SELECT(col1, col2)
+    let (columns, rest) = if rest.starts_with('(') {
+        if let Some(end) = rest.find(')') {
+            let cols: Vec<String> = rest[1..end].split(',')
+                .map(|c| c.trim().to_string())
+                .filter(|c| !c.is_empty())
+                .collect();
+            (cols, rest[end + 1..].trim())
+        } else {
+            (vec![], rest)
+        }
+    } else {
+        (vec![], rest)
+    };
+
+    // Expect "ON table"
+    let rest = if rest.to_uppercase().starts_with("ON ") || rest.to_uppercase().starts_with("ON ") {
+        if rest.len() > 3 { &rest[3..] } else { "" }
+    } else {
+        return Err(HelionError::Parse(format!("Expected ON in {} statement", action)));
+    };
+    let rest = rest.trim();
+
+    // Extract table name (stop at "TO" or "FROM")
+    let (table_name, rest) = if is_grant {
+        let target = " TO ";
+        if let Some(pos) = rest.to_uppercase().find(target) {
+            (&rest[..pos], &rest[pos + 4..])
+        } else if let Some(pos) = rest.to_uppercase().find(" TO") {
+            (&rest[..pos], &rest[pos + 3..])
+        } else {
+            (rest.trim(), "")
+        }
+    } else {
+        let target = " FROM ";
+        if let Some(pos) = rest.to_uppercase().find(target) {
+            (&rest[..pos], &rest[pos + 5..])
+        } else if let Some(pos) = rest.to_uppercase().find(" FROM") {
+            (&rest[..pos], &rest[pos + 5..])
+        } else {
+            (rest.trim(), "")
+        }
+    };
+    let table_name = table_name.trim().trim_end_matches(';').to_string();
+
+    // Extract username
+    let username = rest.trim().trim_end_matches(';').trim().to_string();
+
+    if username.is_empty() {
+        return Err(HelionError::Parse(format!("Expected username in {} statement", action)));
+    }
+
+    if is_grant {
+        Ok(vec![HelionStatement::Grant {
+            username,
+            table: table_name,
+            columns,
+            permission_type: perm_type,
+        }])
+    } else {
+        Ok(vec![HelionStatement::Revoke {
+            username,
+            table: table_name,
+            columns,
+            permission_type: perm_type,
+        }])
+    }
 }
 
 fn convert_statement(stmt: SqlStatement) -> Result<HelionStatement> {
@@ -661,6 +880,165 @@ mod tests {
                 assert_eq!(values[0][4], Datum::Null);
             }
             _ => panic!("Expected Insert"),
+        }
+    }
+
+    // ── User/Permission Statement Tests ─────────────────────────────────
+
+    #[test]
+    fn test_parse_create_user() {
+        let sql = "CREATE USER alice WITH PASSWORD 'secret123'";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::CreateUser { username, password } => {
+                assert_eq!(username, "alice");
+                assert_eq!(password, "secret123");
+            }
+            _ => panic!("Expected CreateUser"),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_user() {
+        let sql = "DROP USER alice";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::DropUser { username, if_exists } => {
+                assert_eq!(username, "alice");
+                assert!(!if_exists);
+            }
+            _ => panic!("Expected DropUser"),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_user_if_exists() {
+        let sql = "DROP USER IF EXISTS alice";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::DropUser { username, if_exists } => {
+                assert_eq!(username, "alice");
+                assert!(if_exists);
+            }
+            _ => panic!("Expected DropUser"),
+        }
+    }
+
+    #[test]
+    fn test_parse_alter_user() {
+        let sql = "ALTER USER alice WITH PASSWORD 'newpass'";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::AlterUser { username, password } => {
+                assert_eq!(username, "alice");
+                assert_eq!(password, "newpass");
+            }
+            _ => panic!("Expected AlterUser"),
+        }
+    }
+
+    #[test]
+    fn test_parse_grant_select() {
+        let sql = "GRANT SELECT ON users TO alice";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::Grant { username, table, columns, permission_type } => {
+                assert_eq!(username, "alice");
+                assert_eq!(table, "users");
+                assert!(columns.is_empty());
+                assert_eq!(*permission_type, GrantPermissionType::Select);
+            }
+            _ => panic!("Expected Grant"),
+        }
+    }
+
+    #[test]
+    fn test_parse_grant_select_columns() {
+        let sql = "GRANT SELECT(id, name) ON users TO alice";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::Grant { username, table, columns, permission_type } => {
+                assert_eq!(username, "alice");
+                assert_eq!(table, "users");
+                assert_eq!(columns, &["id", "name"]);
+                assert_eq!(*permission_type, GrantPermissionType::Select);
+            }
+            _ => panic!("Expected Grant with columns"),
+        }
+    }
+
+    #[test]
+    fn test_parse_grant_insert() {
+        let sql = "GRANT INSERT ON users TO alice";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::Grant { permission_type, .. } => {
+                assert_eq!(*permission_type, GrantPermissionType::Insert);
+            }
+            _ => panic!("Expected Grant"),
+        }
+    }
+
+    #[test]
+    fn test_parse_grant_update() {
+        let sql = "GRANT UPDATE(email) ON users TO alice";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::Grant { permission_type, columns, .. } => {
+                assert_eq!(*permission_type, GrantPermissionType::Update);
+                assert_eq!(columns, &["email"]);
+            }
+            _ => panic!("Expected Grant"),
+        }
+    }
+
+    #[test]
+    fn test_parse_grant_delete() {
+        let sql = "GRANT DELETE ON users TO alice";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::Grant { permission_type, .. } => {
+                assert_eq!(*permission_type, GrantPermissionType::Delete);
+            }
+            _ => panic!("Expected Grant"),
+        }
+    }
+
+    #[test]
+    fn test_parse_grant_all() {
+        let sql = "GRANT ALL ON users TO alice";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::Grant { permission_type, .. } => {
+                assert_eq!(*permission_type, GrantPermissionType::All);
+            }
+            _ => panic!("Expected Grant All"),
+        }
+    }
+
+    #[test]
+    fn test_parse_revoke_select() {
+        let sql = "REVOKE SELECT ON users FROM alice";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::Revoke { username, table, .. } => {
+                assert_eq!(username, "alice");
+                assert_eq!(table, "users");
+            }
+            _ => panic!("Expected Revoke"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_user_password() {
+        let sql = "CREATE USER bob PASSWORD 'test123'";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::CreateUser { username, password } => {
+                assert_eq!(username, "bob");
+                assert_eq!(password, "test123");
+            }
+            _ => panic!("Expected CreateUser"),
         }
     }
 }

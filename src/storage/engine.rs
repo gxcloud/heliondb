@@ -7,8 +7,10 @@ use tracing::{debug, info};
 use crate::error::{HelionError, Result};
 use crate::storage::checkpoint::{checkpoint_loop, write_checkpoint};
 use crate::storage::mvcc::{MvccStore, Transaction, WriteEntry, WriteOp, TransactionStatus};
+use crate::storage::permissions::{Permission, PermissionStore};
 use crate::storage::table::Table;
 use crate::storage::types::ColumnMeta;
+use crate::storage::users::{User, UserStore};
 use crate::storage::wal::{replay_wal, WalRecord, WalWriter};
 
 /// The central database engine that ties together MVCC, storage, and WAL persistence.
@@ -23,6 +25,10 @@ pub struct DatabaseEngine {
     data_dir: PathBuf,
     /// Cancellation token for background tasks.
     cancel: CancellationToken,
+    /// User store (protected by RwLock).
+    pub(crate) users: RwLock<UserStore>,
+    /// Permission store (protected by RwLock).
+    pub(crate) permissions: RwLock<PermissionStore>,
 }
 
 impl DatabaseEngine {
@@ -37,6 +43,8 @@ impl DatabaseEngine {
         info!("Replayed WAL: {} tables restored", tables.len());
 
         let wal_writer = Arc::new(Mutex::new(WalWriter::open(data_dir).await?));
+        let users = UserStore::new();
+        let permissions = PermissionStore::new();
 
         let engine = DatabaseEngine {
             tables: Arc::new(RwLock::new(tables)),
@@ -44,7 +52,30 @@ impl DatabaseEngine {
             wal_writer,
             data_dir: data_dir.to_path_buf(),
             cancel: CancellationToken::new(),
+            users: RwLock::new(users),
+            permissions: RwLock::new(permissions),
         };
+
+        // Auto-create admin user if HELION_PASSWORD env var is set and no users exist
+        {
+            let users = engine.users.read().await;
+            if users.user_count() == 0 {
+                drop(users);
+                if let Ok(password) = std::env::var("HELION_PASSWORD") {
+                    let mut users = engine.users.write().await;
+                    users.create_user("helion", &password)?;
+                    info!("Created default admin user 'helion' from HELION_PASSWORD");
+                    // Grant all permissions on all tables to helion
+                    let mut perms = engine.permissions.write().await;
+                    let all_tables = engine.tables.read().await;
+                    for table in all_tables.iter() {
+                        perms.grant("helion", &table.name, Permission::All);
+                    }
+                }
+            } else {
+                info!("Found {} existing users", users.user_count());
+            }
+        }
 
         // Start the checkpoint background loop
         let checkpoint_tables = engine.tables.clone();
@@ -219,7 +250,174 @@ impl DatabaseEngine {
             name: name.to_string(),
         }).await?;
         debug!("Dropped table '{}'", name);
+        // Also remove permissions for this table
+        self.permissions.write().await.remove_table(name);
         Ok(())
+    }
+
+    // ── User Management ────────────────────────────────────────────────
+
+    pub async fn create_user(&self, username: &str, password: &str) -> Result<()> {
+        let mut users = self.users.write().await;
+        users.create_user(username, password)?;
+        let user = users.get_user(username).unwrap().clone();
+        self.wal_writer.lock().await.append(WalRecord::CreateUser {
+            username: user.username,
+            password_hash: user.password_hash,
+        }).await?;
+        info!("Created user '{}'", username);
+        Ok(())
+    }
+
+    pub async fn drop_user(&self, username: &str) -> Result<()> {
+        {
+            let mut users = self.users.write().await;
+            users.drop_user(username)?;
+        }
+        self.wal_writer.lock().await.append(WalRecord::DropUser {
+            username: username.to_string(),
+        }).await?;
+        // Remove all permissions for this user
+        self.permissions.write().await.remove_user(username);
+        info!("Dropped user '{}'", username);
+        Ok(())
+    }
+
+    pub async fn alter_user_password(&self, username: &str, new_password: &str) -> Result<()> {
+        let mut users = self.users.write().await;
+        users.update_password(username, new_password)?;
+        let user = users.get_user(username).unwrap().clone();
+        self.wal_writer.lock().await.append(WalRecord::CreateUser {
+            username: user.username,
+            password_hash: user.password_hash,
+        }).await?;
+        info!("Updated password for user '{}'", username);
+        Ok(())
+    }
+
+    pub async fn verify_user(&self, username: &str, password: &str) -> bool {
+        self.users.read().await.verify_login(username, password)
+    }
+
+    pub async fn user_exists(&self, username: &str) -> bool {
+        self.users.read().await.user_exists(username)
+    }
+
+    pub fn get_user_count(&self) -> usize {
+        // sync version for use in non-async contexts
+        0 // placeholder — use get_users() for async
+    }
+
+    pub async fn get_users(&self) -> Vec<User> {
+        self.users.read().await.all_users().to_vec()
+    }
+
+    // ── Permission Management ──────────────────────────────────────────
+
+    pub async fn grant_permission(
+        &self,
+        username: &str,
+        table: &str,
+        permission: Permission,
+    ) -> Result<()> {
+        // Verify user exists
+        if !self.user_exists(username).await {
+            return Err(HelionError::Auth(format!("User '{}' does not exist", username)));
+        }
+        // Verify table exists
+        let tables = self.tables.read().await;
+        if !tables.iter().any(|t| t.name.eq_ignore_ascii_case(table)) {
+            return Err(HelionError::TableNotFound(table.to_string()));
+        }
+        drop(tables);
+
+        let mut perms = self.permissions.write().await;
+        perms.grant(username, table, permission.clone());
+        self.wal_writer.lock().await.append(WalRecord::Grant {
+            username: username.to_string(),
+            table: table.to_string(),
+            permission: permission.clone(),
+        }).await?;
+        info!("Granted {:?} on '{}' to '{}'", permission, table, username);
+        Ok(())
+    }
+
+    pub async fn revoke_permission(
+        &self,
+        username: &str,
+        table: &str,
+        permission: &Permission,
+    ) -> Result<()> {
+        let mut perms = self.permissions.write().await;
+        perms.revoke(username, table, permission);
+        self.wal_writer.lock().await.append(WalRecord::Revoke {
+            username: username.to_string(),
+            table: table.to_string(),
+            permission: permission.clone(),
+        }).await?;
+        info!("Revoked {:?} on '{}' from '{}'", permission, table, username);
+        Ok(())
+    }
+
+    // ── Permission Checks (used by executor) ───────────────────────────
+
+    pub async fn check_select(
+        &self,
+        username: &str,
+        table: &str,
+        columns: &[&str],
+    ) -> Result<()> {
+        if self.permissions.read().await.can_select(username, table, columns) {
+            Ok(())
+        } else {
+            Err(HelionError::PermissionDenied(format!(
+                "User '{}' does not have SELECT permission on '{}' for columns {:?}",
+                username, table, columns
+            )))
+        }
+    }
+
+    pub async fn check_insert(
+        &self,
+        username: &str,
+        table: &str,
+        columns: &[&str],
+    ) -> Result<()> {
+        if self.permissions.read().await.can_insert(username, table, columns) {
+            Ok(())
+        } else {
+            Err(HelionError::PermissionDenied(format!(
+                "User '{}' does not have INSERT permission on '{}' for columns {:?}",
+                username, table, columns
+            )))
+        }
+    }
+
+    pub async fn check_update(
+        &self,
+        username: &str,
+        table: &str,
+        columns: &[&str],
+    ) -> Result<()> {
+        if self.permissions.read().await.can_update(username, table, columns) {
+            Ok(())
+        } else {
+            Err(HelionError::PermissionDenied(format!(
+                "User '{}' does not have UPDATE permission on '{}' for columns {:?}",
+                username, table, columns
+            )))
+        }
+    }
+
+    pub async fn check_delete(&self, username: &str, table: &str) -> Result<()> {
+        if self.permissions.read().await.can_delete(username, table) {
+            Ok(())
+        } else {
+            Err(HelionError::PermissionDenied(format!(
+                "User '{}' does not have DELETE permission on '{}'",
+                username, table
+            )))
+        }
     }
 
     /// Shutdown the engine: write checkpoint, close WAL.

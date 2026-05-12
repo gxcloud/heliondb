@@ -1,5 +1,6 @@
 use crate::error::{HelionError, Result};
 use crate::sql::parser::*;
+use crate::storage::permissions::Permission;
 use crate::storage::table::Table;
 use crate::storage::types::{ColumnMeta, Datum, Row};
 
@@ -39,6 +40,30 @@ pub enum LogicalPlan {
         table_name: String,
         where_clause: Option<Expression>,
         table_columns: Vec<ColumnMeta>,
+    },
+    CreateUser {
+        username: String,
+        password: String,
+    },
+    DropUser {
+        username: String,
+        if_exists: bool,
+    },
+    AlterUser {
+        username: String,
+        password: String,
+    },
+    Grant {
+        username: String,
+        table: String,
+        columns: Vec<String>,
+        permission: Permission,
+    },
+    Revoke {
+        username: String,
+        table: String,
+        columns: Vec<String>,
+        permission: Permission,
     },
 }
 
@@ -132,6 +157,54 @@ pub fn plan(
                 table_name: table_name.clone(),
                 where_clause: where_clause.clone(),
                 table_columns: table.columns.clone(),
+            })
+        }
+        HelionStatement::CreateUser { username, password } => {
+            Ok(LogicalPlan::CreateUser {
+                username: username.clone(),
+                password: password.clone(),
+            })
+        }
+        HelionStatement::DropUser { username, if_exists } => {
+            Ok(LogicalPlan::DropUser {
+                username: username.clone(),
+                if_exists: *if_exists,
+            })
+        }
+        HelionStatement::AlterUser { username, password } => {
+            Ok(LogicalPlan::AlterUser {
+                username: username.clone(),
+                password: password.clone(),
+            })
+        }
+        HelionStatement::Grant { username, table, columns, permission_type } => {
+            let permission = match permission_type {
+                GrantPermissionType::Select => Permission::Select(columns.clone()),
+                GrantPermissionType::Insert => Permission::Insert(columns.clone()),
+                GrantPermissionType::Update => Permission::Update(columns.clone()),
+                GrantPermissionType::Delete => Permission::Delete,
+                GrantPermissionType::All => Permission::All,
+            };
+            Ok(LogicalPlan::Grant {
+                username: username.clone(),
+                table: table.clone(),
+                columns: columns.clone(),
+                permission,
+            })
+        }
+        HelionStatement::Revoke { username, table, columns, permission_type } => {
+            let permission = match permission_type {
+                GrantPermissionType::Select => Permission::Select(columns.clone()),
+                GrantPermissionType::Insert => Permission::Insert(columns.clone()),
+                GrantPermissionType::Update => Permission::Update(columns.clone()),
+                GrantPermissionType::Delete => Permission::Delete,
+                GrantPermissionType::All => Permission::All,
+            };
+            Ok(LogicalPlan::Revoke {
+                username: username.clone(),
+                table: table.clone(),
+                columns: columns.clone(),
+                permission,
             })
         }
     }
@@ -262,6 +335,44 @@ mod tests {
         let stmts = parse("DELETE FROM users WHERE id = 1").unwrap();
         let plan = plan(&stmts[0], &make_tables()).unwrap();
         assert!(matches!(plan, LogicalPlan::Delete { .. }));
+    }
+
+    #[test]
+    fn test_plan_create_user() {
+        let stmts = parse("CREATE USER alice WITH PASSWORD 'secret'").unwrap();
+        let plan = plan(&stmts[0], &[]).unwrap();
+        match plan {
+            LogicalPlan::CreateUser { username, .. } => assert_eq!(username, "alice"),
+            _ => panic!("Expected CreateUser"),
+        }
+    }
+
+    #[test]
+    fn test_plan_drop_user() {
+        let stmts = parse("DROP USER alice").unwrap();
+        let plan = plan(&stmts[0], &[]).unwrap();
+        assert!(matches!(plan, LogicalPlan::DropUser { .. }));
+    }
+
+    #[test]
+    fn test_plan_grant() {
+        let stmts = parse("GRANT SELECT ON users TO alice").unwrap();
+        let plan = plan(&stmts[0], &make_tables()).unwrap();
+        match plan {
+            LogicalPlan::Grant { username, table, permission, .. } => {
+                assert_eq!(username, "alice");
+                assert_eq!(table, "users");
+                assert_eq!(permission, Permission::Select(vec![]));
+            }
+            _ => panic!("Expected Grant"),
+        }
+    }
+
+    #[test]
+    fn test_plan_revoke() {
+        let stmts = parse("REVOKE ALL ON users FROM alice").unwrap();
+        let plan = plan(&stmts[0], &make_tables()).unwrap();
+        assert!(matches!(plan, LogicalPlan::Revoke { .. }));
     }
 
     #[test]
