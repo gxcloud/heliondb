@@ -1,0 +1,800 @@
+<!DOCTYPE HTML>
+<html lang="en" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>HelionDB</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-2459343d.css">
+        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-d0ce92a3.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-64e7334c.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">HelionDB</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/gxcloud/heliondb" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="heliondb"><a class="header" href="#heliondb">HelionDB</a></h1>
+<p>HelionDB is a fast SQL database with PostgreSQL-compatible syntax, selectable per-table storage engines, async WAL persistence, and QUIC transport.</p>
+<h2 id="highlights"><a class="header" href="#highlights">Highlights</a></h2>
+<ul>
+<li>Selectable storage engines: <code>memory</code> and <code>disk</code></li>
+<li>PostgreSQL-compatible SQL via <code>sqlparser-rs</code></li>
+<li>MVCC concurrency with snapshot isolation</li>
+<li>Async WAL persistence with CRC32 integrity checks</li>
+<li>Crash recovery from WAL replay and checkpoints</li>
+<li>QUIC transport via <code>quinn</code></li>
+</ul>
+<h2 id="sql-support"><a class="header" href="#sql-support">SQL Support</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>Status</th></tr>
+</thead>
+<tbody>
+<tr><td>`CREATE TABLE … ENGINE = memory</td><td>disk`</td></tr>
+<tr><td><code>DROP TABLE</code></td><td>✅</td></tr>
+<tr><td>`ALTER TABLE … ENGINE = memory</td><td>disk`</td></tr>
+<tr><td><code>EXPLAIN</code> / <code>EXPLAIN ANALYZE</code></td><td>✅</td></tr>
+<tr><td><code>INSERT INTO ... VALUES</code></td><td>✅</td></tr>
+<tr><td><code>SELECT ... FROM ... WHERE</code></td><td>✅</td></tr>
+<tr><td><code>UPDATE ... SET ... WHERE</code></td><td>✅</td></tr>
+<tr><td><code>DELETE FROM ... WHERE</code></td><td>✅</td></tr>
+<tr><td><code>ORDER BY</code>, <code>LIMIT</code>, <code>OFFSET</code></td><td>✅</td></tr>
+<tr><td><code>WHERE</code> expressions (<code>=</code>, <code>&lt;</code>, <code>&gt;</code>, <code>AND</code>, <code>OR</code>, <code>IN</code>, <code>BETWEEN</code>, <code>LIKE</code>, <code>IS NULL</code>)</td><td>✅</td></tr>
+<tr><td>Aggregate functions (<code>COUNT</code>, <code>SUM</code>, <code>AVG</code>, <code>MIN</code>, <code>MAX</code>)</td><td>✅</td></tr>
+<tr><td>Scalar functions (<code>LOWER</code>, <code>UPPER</code>, <code>LENGTH</code>, <code>COALESCE</code>, <code>IFNULL</code>, <code>ABS</code>, <code>ROUND</code>)</td><td>✅</td></tr>
+<tr><td><code>UUIDV7()</code></td><td>✅</td></tr>
+<tr><td><code>PRIMARY KEY</code>, <code>NOT NULL</code>, <code>UNIQUE</code></td><td>✅</td></tr>
+<tr><td>Implicit type coercion</td><td>✅</td></tr>
+<tr><td>Transactions (<code>BEGIN</code>/<code>COMMIT</code>/<code>ROLLBACK</code>)</td><td>✅</td></tr>
+<tr><td>MVCC snapshot isolation</td><td>✅</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h2>
+<pre class="playground"><code class="language-rust">use heliondb::storage::engine::DatabaseEngine;
+use heliondb::sql::parser::parse;
+use heliondb::sql::planner::plan;
+use heliondb::executor::ops::execute;
+
+#[tokio::main]
+async fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    let mut engine = DatabaseEngine::open_with_default_engine("./mydb".as_ref(), "memory").await?;
+
+    let stmts = parse("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER) ENGINE = disk")?;
+    execute(&amp;engine, &amp;plan(&amp;stmts[0], &amp;[])?).await?;
+
+    engine.shutdown().await?;
+    Ok(())
+}</code></pre>
+<h2 id="where-to-go-next"><a class="header" href="#where-to-go-next">Where To Go Next</a></h2>
+<ul>
+<li>Read the <a href="#user-guide">User Guide</a></li>
+<li>Learn the <a href="#architecture">Architecture</a></li>
+<li>Review the <a href="#api-reference">API Reference</a></li>
+<li>Inspect the <a href="#wire-protocol">Wire Protocol</a></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="user-guide"><a class="header" href="#user-guide">User Guide</a></h1>
+<h2 id="installation"><a class="header" href="#installation">Installation</a></h2>
+<h3 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h3>
+<ul>
+<li>Rust 1.75+ (install via <a href="https://rustup.rs/">rustup</a>)</li>
+</ul>
+<h3 id="build-from-source"><a class="header" href="#build-from-source">Build from Source</a></h3>
+<pre><code class="language-bash">git clone https://github.com/gxcloud/heliondb.git
+cd heliondb
+cargo build --release
+</code></pre>
+<p>The binary will be at <code>./target/release/heliondb</code>.</p>
+<h2 id="running-the-server"><a class="header" href="#running-the-server">Running the Server</a></h2>
+<h3 id="basic-usage"><a class="header" href="#basic-usage">Basic Usage</a></h3>
+<pre><code class="language-bash">./target/release/heliondb
+./target/release/heliondb --data-dir /var/lib/heliondb --listen 0.0.0.0:9613
+./target/release/heliondb --default-engine disk
+</code></pre>
+<h3 id="first-run"><a class="header" href="#first-run">First Run</a></h3>
+<p>On first start, HelionDB:</p>
+<ol>
+<li>Creates the data directory if it doesn’t exist</li>
+<li>Creates an empty WAL file</li>
+<li>Reads <code>HELION_PASSWORD</code> to create the default <code>helion</code> admin user</li>
+<li>Starts the QUIC listener</li>
+</ol>
+<pre><code class="language-bash">export HELION_PASSWORD=my_secure_password
+./target/release/heliondb
+</code></pre>
+<h3 id="tls-certificates"><a class="header" href="#tls-certificates">TLS Certificates</a></h3>
+<p>By default, HelionDB generates a self-signed certificate on first run. To use your own certificates:</p>
+<pre><code class="language-bash">./target/release/heliondb --cert /path/to/cert.pem --key /path/to/key.pem
+</code></pre>
+<h3 id="cli-options"><a class="header" href="#cli-options">CLI Options</a></h3>
+<pre><code class="language-text">Usage: heliondb [OPTIONS]
+
+Options:
+      --data-dir &lt;PATH&gt;          Data directory [default: ./data]
+      --listen &lt;ADDR&gt;            QUIC listen address [default: 127.0.0.1:9613]
+      --cert &lt;PATH&gt;              TLS certificate file (PEM)
+      --key &lt;PATH&gt;               TLS private key file (PEM)
+      --default-engine &lt;ENGINE&gt;  memory | disk [default: memory]
+      --durability &lt;MODE&gt;        sync | async [default: async]
+      --checkpoint-interval &lt;S&gt;  Seconds between checkpoints [default: 60]
+</code></pre>
+<h3 id="durability-modes"><a class="header" href="#durability-modes">Durability Modes</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Mode</th><th>Behavior</th><th>Data Loss Window</th></tr>
+</thead>
+<tbody>
+<tr><td><code>async</code> (default)</td><td>WAL flushed every 5ms. Fastest writes.</td><td>Up to 5ms of writes</td></tr>
+<tr><td><code>sync</code></td><td>WAL flushed on every write. Safest.</td><td>None</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="connecting-to-heliondb"><a class="header" href="#connecting-to-heliondb">Connecting To HelionDB</a></h2>
+<h3 id="rust-client-library"><a class="header" href="#rust-client-library">Rust Client Library</a></h3>
+<pre><code class="language-toml">[dependencies]
+heliondb = { git = "https://github.com/gxcloud/heliondb" }
+tokio = { version = "1", features = ["full"] }
+</code></pre>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use heliondb::storage::engine::DatabaseEngine;
+use heliondb::executor::ops::{execute, execute_as};
+use heliondb::sql::parser::parse;
+use heliondb::sql::planner::plan;
+
+let mut engine = DatabaseEngine::open_with_default_engine("./db".as_ref(), "memory").await?;
+assert!(engine.verify_user("helion", "my_secure_password").await);
+
+let s = &amp;parse("CREATE TABLE items (id INTEGER, name TEXT) ENGINE = disk")?;
+execute(&amp;engine, &amp;plan(&amp;s[0], &amp;[])?).await?;
+<span class="boring">}</span></code></pre>
+<h3 id="generic-quic-client"><a class="header" href="#generic-quic-client">Generic QUIC Client</a></h3>
+<p>Any QUIC-capable client can connect. The protocol uses length-prefixed bincode messages; see <a href="#wire-protocol">Wire Protocol</a>.</p>
+<h2 id="sql-reference"><a class="header" href="#sql-reference">SQL Reference</a></h2>
+<h3 id="data-definition"><a class="header" href="#data-definition">Data Definition</a></h3>
+<pre><code class="language-sql">CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    email VARCHAR(255),
+    age INTEGER DEFAULT 0
+);
+CREATE TABLE archive_users (id INTEGER, name TEXT) ENGINE = disk;
+
+DROP TABLE users;
+DROP TABLE IF EXISTS users;
+
+ALTER TABLE users ENGINE = memory;
+ALTER TABLE archive_users ENGINE = disk;
+</code></pre>
+<h3 id="data-manipulation"><a class="header" href="#data-manipulation">Data Manipulation</a></h3>
+<pre><code class="language-sql">INSERT INTO users VALUES (1, 'Alice', 'alice@example.com', 30);
+INSERT INTO users (id, name) VALUES (2, 'Bob');
+
+SELECT * FROM users;
+SELECT id, name FROM users WHERE age &gt; 18;
+SELECT * FROM users ORDER BY name DESC LIMIT 10 OFFSET 20;
+SELECT name FROM users WHERE name LIKE 'A%' AND age BETWEEN 20 AND 40;
+SELECT COUNT(*), AVG(age) FROM users;
+
+UPDATE users SET email = 'new@example.com' WHERE id = 1;
+DELETE FROM users WHERE id = 2;
+
+EXPLAIN SELECT * FROM users WHERE age &gt; 18;
+EXPLAIN ANALYZE SELECT * FROM users WHERE age &gt; 18;
+</code></pre>
+<h3 id="user-management"><a class="header" href="#user-management">User Management</a></h3>
+<pre><code class="language-sql">CREATE USER alice WITH PASSWORD 'secure_password';
+CREATE USER bob PASSWORD 'another_password';
+
+DROP USER alice;
+DROP USER IF EXISTS alice;
+
+ALTER USER bob WITH PASSWORD 'new_password';
+</code></pre>
+<h3 id="permission-management"><a class="header" href="#permission-management">Permission Management</a></h3>
+<pre><code class="language-sql">GRANT SELECT ON users TO alice;
+GRANT SELECT(id, name) ON users TO alice;
+GRANT INSERT ON users TO alice;
+GRANT UPDATE(email) ON users TO alice;
+GRANT DELETE ON users TO alice;
+GRANT ALL ON users TO alice;
+
+REVOKE SELECT ON users FROM alice;
+REVOKE ALL ON users FROM alice;
+</code></pre>
+<h3 id="data-types"><a class="header" href="#data-types">Data Types</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>SQL Type</th><th>Range</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>BOOLEAN</code></td><td><code>true</code>/<code>false</code></td><td></td></tr>
+<tr><td><code>SMALLINT</code></td><td>-32,768 to 32,767</td><td>16-bit</td></tr>
+<tr><td><code>INTEGER</code> / <code>INT</code></td><td>-2^31 to 2^31-1</td><td>32-bit</td></tr>
+<tr><td><code>BIGINT</code></td><td>-2^63 to 2^63-1</td><td>64-bit</td></tr>
+<tr><td><code>REAL</code></td><td>~±3.4E38</td><td>32-bit float</td></tr>
+<tr><td><code>DOUBLE</code> / <code>FLOAT</code></td><td>~±1.8E308</td><td>64-bit float</td></tr>
+<tr><td><code>VARCHAR(n)</code></td><td>Up to n chars</td><td>Variable-length</td></tr>
+<tr><td><code>CHAR(n)</code></td><td>Exactly n chars</td><td>Fixed-length</td></tr>
+<tr><td><code>TEXT</code></td><td>Unlimited</td><td>Variable-length</td></tr>
+<tr><td><code>DATE</code></td><td>1000-01-01 to 9999-12-31</td><td></td></tr>
+<tr><td><code>TIME</code></td><td>00:00:00 to 23:59:59</td><td></td></tr>
+<tr><td><code>TIMESTAMP</code></td><td>1000-01-01 to 9999-12-31</td><td></td></tr>
+<tr><td><code>UUID</code></td><td>Standard UUID</td><td></td></tr>
+<tr><td><code>UUIDV7</code></td><td>Sortable UUIDv7 bytes</td><td>Generated with <code>UUIDV7()</code></td></tr>
+<tr><td><code>U_SMALLINT</code></td><td>0 to 65,535</td><td>Unsigned 16-bit integer</td></tr>
+<tr><td><code>U_INTEGER</code></td><td>0 to 4,294,967,295</td><td>Unsigned 32-bit integer</td></tr>
+<tr><td><code>U_BIGINT</code></td><td>0 to 18,446,744,073,709,551,615</td><td>Unsigned 64-bit integer</td></tr>
+</tbody>
+</table>
+</div>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="architecture"><a class="header" href="#architecture">Architecture</a></h1>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>HelionDB is a SQL database with PostgreSQL-compatible syntax, MVCC concurrency control, async WAL persistence, pluggable storage engines, and QUIC transport.</p>
+<pre><code class="language-text">                    ┌─────────────────────┐
+                    │      Client         │
+                    │  (QUIC connection)  │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │     Protocol        │
+                    │  (bincode frames)   │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │      Server         │
+                    │  (quinn + session)  │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │      SQL Layer      │
+                    │  parser → planner   │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │     Executor        │
+                    │  (eval + ops)       │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │   Storage Engine    │
+                    │  MVCC + WAL + auth  │
+                    └─────────────────────┘
+</code></pre>
+<h2 id="layer-1-storage-engine"><a class="header" href="#layer-1-storage-engine">Layer 1: Storage Engine</a></h2>
+<h3 id="engine-routing"><a class="header" href="#engine-routing">Engine Routing</a></h3>
+<p><strong>Files</strong>: <code>src/storage/catalog.rs</code>, <code>src/storage/engine_trait.rs</code>, <code>src/storage/engines/*</code></p>
+<ul>
+<li>The catalog stores table-to-engine metadata plus the database default engine.</li>
+<li><code>memory</code> keeps tables in RAM.</li>
+<li><code>disk</code> stores each table under its own directory on disk.</li>
+<li><code>ALTER TABLE ... ENGINE = ...</code> migrates a table by snapshotting, restoring, and atomically switching the catalog entry.</li>
+</ul>
+<h3 id="mvcc"><a class="header" href="#mvcc">MVCC</a></h3>
+<p><strong>File</strong>: <code>src/storage/mvcc.rs</code></p>
+<p>HelionDB implements snapshot isolation using version chains.</p>
+<ul>
+<li>Transactions get a monotonically increasing <code>tx_id</code>.</li>
+<li>Each transaction captures a snapshot of all active transactions.</li>
+<li>Each logical row is stored as a chain of row versions.</li>
+<li>A version is visible if it was created before the snapshot, not deleted before the snapshot, and the creator was already committed.</li>
+</ul>
+<h3 id="optimistic-concurrency-control"><a class="header" href="#optimistic-concurrency-control">Optimistic Concurrency Control</a></h3>
+<p>When a transaction commits:</p>
+<ol>
+<li>Conflicts are checked against the snapshot active set.</li>
+<li>Old versions are marked with <code>txid_max</code>.</li>
+<li>New versions are appended.</li>
+<li>All writes are appended to the WAL.</li>
+</ol>
+<h3 id="wal"><a class="header" href="#wal">WAL</a></h3>
+<p><strong>File</strong>: <code>src/storage/wal.rs</code></p>
+<ul>
+<li>Append-only binary file with length-prefixed, bincode-serialized records.</li>
+<li>Each record has a CRC32 checksum.</li>
+<li>On startup, WAL is replayed to reconstruct full state.</li>
+</ul>
+<h3 id="checkpoints"><a class="header" href="#checkpoints">Checkpoints</a></h3>
+<p><strong>File</strong>: <code>src/storage/checkpoint.rs</code></p>
+<p>A background task writes a full snapshot of all tables periodically. On restart, the latest checkpoint is loaded first, then remaining WAL records are applied.</p>
+<h2 id="layer-2-sql-layer"><a class="header" href="#layer-2-sql-layer">Layer 2: SQL Layer</a></h2>
+<h3 id="parser"><a class="header" href="#parser">Parser</a></h3>
+<p><strong>File</strong>: <code>src/sql/parser.rs</code></p>
+<ul>
+<li>Uses <code>sqlparser-rs</code> with <code>PostgreSqlDialect</code> for standard SQL.</li>
+<li>A custom fallback handles database-specific statements.</li>
+<li>Parsed statements are converted into <code>HelionStatement</code> variants.</li>
+</ul>
+<h3 id="planner"><a class="header" href="#planner">Planner</a></h3>
+<p><strong>File</strong>: <code>src/sql/planner.rs</code></p>
+<ul>
+<li>Converts <code>HelionStatement</code> to <code>LogicalPlan</code>.</li>
+<li>Resolves column names against table schemas.</li>
+<li>Type-checks <code>INSERT</code> and <code>UPDATE</code> values.</li>
+</ul>
+<h2 id="layer-3-executor"><a class="header" href="#layer-3-executor">Layer 3: Executor</a></h2>
+<h3 id="expression-evaluator"><a class="header" href="#expression-evaluator">Expression Evaluator</a></h3>
+<p><strong>File</strong>: <code>src/executor/eval.rs</code></p>
+<ul>
+<li>Recursive expression evaluation against a row.</li>
+<li>Supports comparisons, arithmetic, logical ops, <code>IS NULL</code>, <code>IN</code>, <code>BETWEEN</code>, and <code>LIKE</code>.</li>
+<li>Built-in functions include <code>COUNT</code>, <code>SUM</code>, <code>AVG</code>, <code>MIN</code>, <code>MAX</code>, <code>LOWER</code>, <code>UPPER</code>, <code>LENGTH</code>, <code>COALESCE</code>, <code>IFNULL</code>, <code>ABS</code>, <code>ROUND</code>, and <code>UUIDV7</code>.</li>
+</ul>
+<h3 id="physical-operators"><a class="header" href="#physical-operators">Physical Operators</a></h3>
+<p><strong>File</strong>: <code>src/executor/ops.rs</code></p>
+<ul>
+<li><code>execute(engine, plan)</code> executes without permission checks.</li>
+<li><code>execute_as(engine, plan, current_user)</code> executes with column-level permission checks.</li>
+</ul>
+<h2 id="layer-4-server--protocol"><a class="header" href="#layer-4-server--protocol">Layer 4: Server &amp; Protocol</a></h2>
+<h3 id="protocol"><a class="header" href="#protocol">Protocol</a></h3>
+<p><strong>File</strong>: <code>src/protocol/messages.rs</code></p>
+<p>Custom binary protocol over QUIC with length-prefixed bincode payloads.</p>
+<h3 id="session-management"><a class="header" href="#session-management">Session Management</a></h3>
+<p><strong>File</strong>: <code>src/protocol/auth.rs</code></p>
+<ul>
+<li>Session tokens are <code>u64</code> values.</li>
+<li>Active sessions are stored behind a <code>RwLock</code>.</li>
+</ul>
+<h3 id="quic-server"><a class="header" href="#quic-server">QUIC Server</a></h3>
+<p><strong>File</strong>: <code>src/server/quic.rs</code></p>
+<ul>
+<li>Uses <code>quinn</code> for transport.</li>
+<li>Supports auto-generated self-signed certs or user-provided PEM files.</li>
+<li>Default listen address is <code>127.0.0.1:9613</code>.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="api-reference"><a class="header" href="#api-reference">API Reference</a></h1>
+<h2 id="using-heliondb-as-a-library"><a class="header" href="#using-heliondb-as-a-library">Using HelionDB as a Library</a></h2>
+<pre><code class="language-toml">[dependencies]
+heliondb = { git = "https://github.com/gxcloud/heliondb" }
+tokio = { version = "1", features = ["full"] }
+</code></pre>
+<h2 id="core-types"><a class="header" href="#core-types">Core Types</a></h2>
+<h3 id="databaseengine"><a class="header" href="#databaseengine"><code>DatabaseEngine</code></a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use heliondb::storage::engine::DatabaseEngine;
+
+let mut engine = DatabaseEngine::open_with_default_engine("./mydb".as_ref(), "memory").await?;
+<span class="boring">}</span></code></pre>
+<p><strong>Methods:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>open(data_dir)</code></td><td>Open or create database, replay WAL</td></tr>
+<tr><td><code>open_with_default_engine(data_dir, engine)</code></td><td>Open with a default table engine</td></tr>
+<tr><td><code>begin()</code></td><td>Start a new MVCC transaction</td></tr>
+<tr><td><code>commit(tx)</code></td><td>Commit a transaction</td></tr>
+<tr><td><code>rollback(tx)</code></td><td>Roll back a transaction</td></tr>
+<tr><td><code>with_read_txn(f)</code></td><td>Execute a read-only closure in a transaction</td></tr>
+<tr><td><code>with_write_txn(f)</code></td><td>Execute a write closure in a transaction</td></tr>
+<tr><td><code>get_tables()</code></td><td>Get snapshot of all tables</td></tr>
+<tr><td><code>create_table(name, columns, engine)</code></td><td>Create a new table</td></tr>
+<tr><td><code>alter_table_engine(name, engine)</code></td><td>Migrate a table to another engine</td></tr>
+<tr><td><code>drop_table(name)</code></td><td>Drop a table</td></tr>
+<tr><td><code>explain(sql)</code></td><td>Run <code>EXPLAIN</code> and return planned output</td></tr>
+<tr><td><code>explain_analyze(sql)</code></td><td>Run <code>EXPLAIN ANALYZE</code> and execute the statement</td></tr>
+<tr><td><code>create_user(username, password)</code></td><td>Create a new database user</td></tr>
+<tr><td><code>drop_user(username)</code></td><td>Drop a user</td></tr>
+<tr><td><code>alter_user_password(username, password)</code></td><td>Change a user password</td></tr>
+<tr><td><code>verify_user(username, password)</code></td><td>Verify login credentials</td></tr>
+<tr><td><code>grant_permission(username, table, permission)</code></td><td>Grant a permission</td></tr>
+<tr><td><code>revoke_permission(username, table, permission)</code></td><td>Revoke a permission</td></tr>
+<tr><td><code>check_select(username, table, columns)</code></td><td>Check <code>SELECT</code> permission</td></tr>
+<tr><td><code>check_insert(username, table, columns)</code></td><td>Check <code>INSERT</code> permission</td></tr>
+<tr><td><code>check_update(username, table, columns)</code></td><td>Check <code>UPDATE</code> permission</td></tr>
+<tr><td><code>check_delete(username, table)</code></td><td>Check <code>DELETE</code> permission</td></tr>
+<tr><td><code>shutdown()</code></td><td>Write checkpoint, flush WAL, shut down</td></tr>
+<tr><td><code>get_users()</code></td><td>Get all users</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="transaction"><a class="header" href="#transaction"><code>Transaction</code></a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Transaction {
+    pub tx_id: TransactionId,
+    pub status: TransactionStatus,
+    pub snapshot: Snapshot,
+    pub write_set: Vec&lt;WriteEntry&gt;,
+}
+<span class="boring">}</span></code></pre>
+<h3 id="writeentry"><a class="header" href="#writeentry"><code>WriteEntry</code></a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct WriteEntry {
+    pub table_name: String,
+    pub row_idx: usize,
+    pub old_txid_max: u64,
+    pub operation: WriteOp,
+}
+
+pub enum WriteOp {
+    Insert(Row),
+    Update(Row),
+    Delete,
+}
+<span class="boring">}</span></code></pre>
+<h3 id="datatype--datum"><a class="header" href="#datatype--datum"><code>DataType</code> / <code>Datum</code></a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum DataType {
+    Boolean, SmallInt, UnsignedSmallInt, Integer, UnsignedInteger, BigInt, UnsignedBigInt, Real, Double,
+    VarChar(Option&lt;usize&gt;), Char(Option&lt;usize&gt;), Text,
+    Binary, Date, Time, Timestamp, TimestampTz, Uuid, UuidV7, Null,
+}
+
+pub enum Datum {
+    Boolean(bool), SmallInt(i16), UnsignedSmallInt(u16), Integer(i32), UnsignedInteger(u32), BigInt(i64), UnsignedBigInt(u64),
+    Real(f32), Double(f64), VarChar(String), Char(String),
+    Text(String), Binary(Vec&lt;u8&gt;), Date(NaiveDate),
+    Time(NaiveTime), Timestamp(NaiveDateTime),
+    TimestampTz(i64), Uuid(uuid::Uuid), UuidV7([u8; 16]), Null,
+}
+<span class="boring">}</span></code></pre>
+<h3 id="columnmeta"><a class="header" href="#columnmeta"><code>ColumnMeta</code></a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct ColumnMeta {
+    pub name: String,
+    pub data_type: DataType,
+    pub nullable: bool,
+    pub is_primary_key: bool,
+    pub is_unique: bool,
+    pub default: Option&lt;Datum&gt;,
+}
+<span class="boring">}</span></code></pre>
+<h2 id="sql-parsing"><a class="header" href="#sql-parsing">SQL Parsing</a></h2>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use heliondb::sql::parser::parse;
+use heliondb::sql::planner::plan;
+
+let stmts = parse("SELECT * FROM users WHERE age &gt; 18")?;
+let logical_plan = plan(&amp;stmts[0], &amp;engine.get_tables().await)?;
+<span class="boring">}</span></code></pre>
+<h2 id="supported-statements"><a class="header" href="#supported-statements">Supported Statements</a></h2>
+<ul>
+<li><code>CREATE TABLE name (col TYPE [PRIMARY KEY] [NOT NULL] [UNIQUE], ...) [ENGINE = memory|disk]</code></li>
+<li><code>DROP TABLE [IF EXISTS] name</code></li>
+<li><code>ALTER TABLE name ENGINE = memory|disk</code></li>
+<li><code>INSERT INTO name [(cols)] VALUES (vals), ...</code></li>
+<li><code>SELECT [cols|*] FROM name [WHERE expr] [ORDER BY col [ASC|DESC]] [LIMIT n] [OFFSET n]</code></li>
+<li><code>UPDATE name SET col = val [, ...] [WHERE expr]</code></li>
+<li><code>DELETE FROM name [WHERE expr]</code></li>
+<li><code>EXPLAIN [ANALYZE] statement</code></li>
+<li><code>CREATE USER name [WITH] PASSWORD '...'</code></li>
+<li><code>DROP USER [IF EXISTS] name</code></li>
+<li><code>ALTER USER name [WITH] PASSWORD '...'</code></li>
+<li><code>GRANT {SELECT[(cols)]|INSERT[(cols)]|UPDATE[(cols)]|DELETE|ALL} ON table TO user</code></li>
+<li><code>REVOKE {SELECT[(cols)]|INSERT[(cols)]|UPDATE[(cols)]|DELETE|ALL} ON table FROM user</code></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="wire-protocol"><a class="header" href="#wire-protocol">Wire Protocol</a></h1>
+<h2 id="transport"><a class="header" href="#transport">Transport</a></h2>
+<p>HelionDB uses <strong>QUIC</strong> via <code>quinn</code> as its transport protocol.</p>
+<h2 id="tls"><a class="header" href="#tls">TLS</a></h2>
+<p>QUIC requires TLS 1.3. The server can auto-generate a self-signed certificate on first run or use user-provided PEM files.</p>
+<h2 id="connection-lifecycle"><a class="header" href="#connection-lifecycle">Connection Lifecycle</a></h2>
+<pre><code class="language-text">Client                          Server
+  │                               │
+  ├── QUIC Handshake ────────────►│
+  │◄── TLS 1.3 established ──────┤
+  │                               │
+  │  Open bidirectional stream    │
+  ├── Auth(username, password)───►│
+  │◄── AuthResult(success,token) ─┤
+  │                               │
+  ├── Query(sql, token) ─────────►│
+  │◄── QueryResult(columns,rows) ─┤
+  │                               │
+  ├── Prepare(sql, token) ───────►│
+  │◄── Prepared(id) ─────────────┤
+  │                               │
+  ├── Execute(id, params, token) ►│
+  │◄── QueryResult(columns,rows) ─┤
+  │                               │
+  └── Connection closed ──────────┤
+</code></pre>
+<h2 id="message-framing"><a class="header" href="#message-framing">Message Framing</a></h2>
+<p>Each message is framed as a 4-byte big-endian length prefix followed by a bincode payload.</p>
+<h2 id="message-types"><a class="header" href="#message-types">Message Types</a></h2>
+<h3 id="client--server"><a class="header" href="#client--server">Client → Server</a></h3>
+<h4 id="auth"><a class="header" href="#auth"><code>Auth</code></a></h4>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Auth {
+    username: String,
+    password: String,
+}
+<span class="boring">}</span></code></pre>
+<h4 id="query"><a class="header" href="#query"><code>Query</code></a></h4>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Query {
+    sql: String,
+    token: u64,
+}
+<span class="boring">}</span></code></pre>
+<h4 id="prepare"><a class="header" href="#prepare"><code>Prepare</code></a></h4>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Prepare {
+    sql: String,
+    token: u64,
+}
+<span class="boring">}</span></code></pre>
+<h4 id="execute"><a class="header" href="#execute"><code>Execute</code></a></h4>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Execute {
+    prepared_id: u64,
+    params: Vec&lt;String&gt;,
+    token: u64,
+}
+<span class="boring">}</span></code></pre>
+<h3 id="server--client"><a class="header" href="#server--client">Server → Client</a></h3>
+<h4 id="authresult"><a class="header" href="#authresult"><code>AuthResult</code></a></h4>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>AuthResult {
+    success: bool,
+    token: u64,
+    error: Option&lt;String&gt;,
+}
+<span class="boring">}</span></code></pre>
+<h4 id="queryresult"><a class="header" href="#queryresult"><code>QueryResult</code></a></h4>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>QueryResult {
+    columns: Vec&lt;String&gt;,
+    rows: Vec&lt;Vec&lt;String&gt;&gt;,
+    error: Option&lt;String&gt;,
+}
+<span class="boring">}</span></code></pre>
+<h4 id="prepared"><a class="header" href="#prepared"><code>Prepared</code></a></h4>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Prepared {
+    id: u64,
+}
+<span class="boring">}</span></code></pre>
+<h4 id="error"><a class="header" href="#error"><code>Error</code></a></h4>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Error {
+    message: String,
+}
+<span class="boring">}</span></code></pre>
+<h2 id="implementation-notes"><a class="header" href="#implementation-notes">Implementation Notes</a></h2>
+<ul>
+<li>Multiple streams can be opened on a single QUIC connection.</li>
+<li>The session token is scoped to the connection.</li>
+<li>Prepared statements are identified by a hash of the SQL string.</li>
+<li>The token must be included in every <code>Query</code>, <code>Prepare</code>, and <code>Execute</code> message.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-c2a407aa.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+
+    </div>
+    </body>
+</html>
