@@ -6,7 +6,8 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{HelionError, Result};
-use crate::storage::engine_trait::{StorageEngine, TableMeta};
+use crate::storage::engine_trait::{normalize_engine_name, StorageEngine, TableMeta};
+use crate::storage::engines::disk::DiskEngine;
 use crate::storage::engines::memory::MemoryEngine;
 use crate::storage::table::{RowVersion, Table};
 use crate::storage::types::{ColumnMeta, Row};
@@ -35,23 +36,28 @@ pub struct Catalog {
 
 impl Catalog {
     /// Create a new catalog and register default engines.
-    pub async fn open(data_dir: &Path) -> Result<Self> {
+    pub async fn open(data_dir: &Path, default_engine: &str) -> Result<Self> {
         let catalog_path = data_dir.join(CATALOG_FILE);
         let mut engines: HashMap<String, Arc<dyn StorageEngine>> = HashMap::new();
 
         // Register built-in engines
-        engines.insert("Memory".to_string(), Arc::new(MemoryEngine::new()));
+        engines.insert("memory".to_string(), Arc::new(MemoryEngine::new()));
+        let disk_dir = data_dir.join("engines").join("disk");
+        engines.insert("disk".to_string(), Arc::new(DiskEngine::open(&disk_dir).await?));
 
         let (metadata, default_engine) = if catalog_path.exists() {
             let bytes = tokio::fs::read(&catalog_path).await?;
             let data: CatalogData = bincode::deserialize(&bytes)
                 .map_err(|e| HelionError::Serialization(e.to_string()))?;
             let meta: HashMap<String, TableMeta> = data.tables.into_iter()
-                .map(|m| (m.name.clone(), m))
+                .map(|mut m| {
+                    m.engine = normalize_engine_name(&m.engine);
+                    (m.name.clone(), m)
+                })
                 .collect();
-            (meta, data.default_engine)
+            (meta, normalize_engine_name(&data.default_engine))
         } else {
-            (HashMap::new(), "Memory".to_string())
+            (HashMap::new(), normalize_engine_name(default_engine))
         };
 
         Ok(Catalog {
@@ -67,7 +73,8 @@ impl Catalog {
     }
 
     pub fn set_default_engine(&self, engine: &str) -> Result<()> {
-        if !self.engines.contains_key(engine) {
+        let engine = normalize_engine_name(engine);
+        if !self.engines.contains_key(&engine) {
             return Err(HelionError::Internal(format!("Unknown engine: {}", engine)));
         }
         *self.default_engine.write() = engine.to_string();
@@ -79,7 +86,8 @@ impl Catalog {
     }
 
     pub fn get_engine(&self, name: &str) -> Result<&Arc<dyn StorageEngine>> {
-        self.engines.get(name).ok_or_else(|| {
+        let name = normalize_engine_name(name);
+        self.engines.get(&name).ok_or_else(|| {
             HelionError::Internal(format!("Unknown engine: {}", name))
         })
     }
@@ -192,35 +200,46 @@ impl Catalog {
 
     /// Migrate a table from one engine to another.
     pub async fn migrate_table(&self, name: &str, target_engine: &str) -> Result<()> {
+        let target_engine = normalize_engine_name(target_engine);
+        let current_engine_name = self.table_engine_name(name).ok_or_else(|| {
+            HelionError::TableNotFound(name.to_string())
+        })?;
+        if current_engine_name == target_engine {
+            return Ok(());
+        }
+
         // Snapshot from current engine
         let snapshot = self.snapshot_table(name).await?;
 
         // Create in target engine
-        let target = self.get_engine(target_engine)?;
-        let meta = TableMeta::new(name, target_engine);
+        let target = self.get_engine(&target_engine)?;
+        let meta = TableMeta::new(name, &target_engine);
         target.create_table(&meta, snapshot.columns.clone()).await?;
-        target.restore_table(snapshot).await?;
-
-        // Drop from old engine
-        let old_engine_name = {
-            let meta = self.metadata.read();
-            meta.get(name).map(|m| m.engine.clone())
-        };
-        if let Some(old_name) = old_engine_name {
-            if old_name != target_engine {
-                let old_engine = self.get_engine(&old_name)?;
-                old_engine.drop_table(name).await?;
-            }
+        if let Err(err) = target.restore_table(snapshot.clone()).await {
+            let _ = target.drop_table(name).await;
+            return Err(err);
         }
 
         // Update metadata
+        let old_engine_name = current_engine_name.clone();
         {
             let mut metadata = self.metadata.write();
             if let Some(m) = metadata.get_mut(name) {
-                m.engine = target_engine.to_string();
+                m.engine = target_engine.clone();
             }
         }
-        self.save().await?;
+        if let Err(err) = self.save().await {
+            let _ = target.drop_table(name).await;
+            let mut metadata = self.metadata.write();
+            if let Some(m) = metadata.get_mut(name) {
+                m.engine = old_engine_name;
+            }
+            return Err(err);
+        }
+
+        if let Err(err) = self.get_engine(&old_engine_name)?.drop_table(name).await {
+            tracing::warn!("failed to drop old table copy '{}': {}", name, err);
+        }
         Ok(())
     }
 
@@ -268,7 +287,9 @@ impl Catalog {
         };
         let bytes = bincode::serialize(&data)
             .map_err(|e| HelionError::Serialization(e.to_string()))?;
-        tokio::fs::write(&self.catalog_path, &bytes).await?;
+        let tmp_path = self.catalog_path.with_extension("tmp");
+        tokio::fs::write(&tmp_path, &bytes).await?;
+        tokio::fs::rename(&tmp_path, &self.catalog_path).await?;
         Ok(())
     }
 }
@@ -281,7 +302,7 @@ mod tests {
 
     async fn setup_catalog() -> (Catalog, TempDir) {
         let dir = TempDir::new().unwrap();
-        let catalog = Catalog::open(dir.path()).await.unwrap();
+        let catalog = Catalog::open(dir.path(), "memory").await.unwrap();
         (catalog, dir)
     }
 
@@ -290,13 +311,13 @@ mod tests {
         let (catalog, _dir) = setup_catalog().await;
         catalog.create_table("users", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
         assert!(catalog.table_exists("users").await.unwrap());
-        assert_eq!(catalog.table_engine_name("users"), Some("Memory".to_string()));
+        assert_eq!(catalog.table_engine_name("users"), Some("memory".to_string()));
     }
 
     #[tokio::test]
     async fn test_create_table_memory_engine() {
         let (catalog, _dir) = setup_catalog().await;
-        catalog.create_table("t", vec![ColumnMeta::new("id", DataType::Integer)], Some("Memory")).await.unwrap();
+        catalog.create_table("t", vec![ColumnMeta::new("id", DataType::Integer)], Some("memory")).await.unwrap();
         assert!(catalog.table_exists("t").await.unwrap());
     }
 
@@ -319,7 +340,7 @@ mod tests {
     #[tokio::test]
     async fn test_default_engine() {
         let (catalog, _dir) = setup_catalog().await;
-        assert_eq!(catalog.default_engine(), "Memory");
+        assert_eq!(catalog.default_engine(), "memory");
     }
 
     #[tokio::test]
@@ -338,13 +359,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         // Create catalog, add tables
         {
-            let catalog = Catalog::open(dir.path()).await.unwrap();
+            let catalog = Catalog::open(dir.path(), "memory").await.unwrap();
             catalog.create_table("persist_me", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
             catalog.close().await.unwrap();
         }
         // Re-open catalog, check table still exists
         {
-            let catalog = Catalog::open(dir.path()).await.unwrap();
+            let catalog = Catalog::open(dir.path(), "memory").await.unwrap();
             assert!(catalog.table_exists("persist_me").await.unwrap());
         }
     }
@@ -374,7 +395,7 @@ mod tests {
         ]).await.unwrap();
 
         // Migrate to same engine (Memory → Memory)
-        catalog.migrate_table("t", "Memory").await.unwrap();
+        catalog.migrate_table("t", "memory").await.unwrap();
         assert!(catalog.table_exists("t").await.unwrap());
 
         let active = BTreeSet::new();

@@ -10,10 +10,15 @@ pub enum LogicalPlan {
     CreateTable {
         name: String,
         columns: Vec<ColumnMeta>,
+        engine: Option<String>,
     },
     DropTable {
         name: String,
         if_exists: bool,
+    },
+    AlterTableEngine {
+        name: String,
+        engine: String,
     },
     Insert {
         table_name: String,
@@ -73,16 +78,23 @@ pub fn plan(
     tables: &[Table],
 ) -> Result<LogicalPlan> {
     match statement {
-        HelionStatement::CreateTable { name, columns } => {
+        HelionStatement::CreateTable { name, columns, engine } => {
             Ok(LogicalPlan::CreateTable {
                 name: name.clone(),
                 columns: columns.clone(),
+                engine: engine.clone(),
             })
         }
         HelionStatement::DropTable { name, if_exists } => {
             Ok(LogicalPlan::DropTable {
                 name: name.clone(),
                 if_exists: *if_exists,
+            })
+        }
+        HelionStatement::AlterTableEngine { name, engine } => {
+            Ok(LogicalPlan::AlterTableEngine {
+                name: name.clone(),
+                engine: engine.clone(),
             })
         }
         HelionStatement::Insert { table_name, columns, values } => {

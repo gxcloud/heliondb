@@ -10,10 +10,15 @@ pub enum HelionStatement {
     CreateTable {
         name: String,
         columns: Vec<ColumnMeta>,
+        engine: Option<String>,
     },
     DropTable {
         name: String,
         if_exists: bool,
+    },
+    AlterTableEngine {
+        name: String,
+        engine: String,
     },
     Insert {
         table_name: String,
@@ -137,6 +142,16 @@ pub enum UnaryOperator {
 
 /// Parse SQL string into a vector of HelionStatement.
 pub fn parse(sql: &str) -> Result<Vec<HelionStatement>> {
+    let trimmed = sql.trim();
+
+    if looks_like_create_table_with_engine(trimmed) {
+        return parse_create_table_with_engine(trimmed);
+    }
+
+    if looks_like_alter_table_engine(trimmed) {
+        return parse_alter_table_engine(trimmed);
+    }
+
     // First try sqlparser
     let dialect = PostgreSqlDialect {};
     if let Ok(statements) = SqlParser::parse_sql(&dialect, sql) {
@@ -159,6 +174,14 @@ pub fn parse(sql: &str) -> Result<Vec<HelionStatement>> {
 fn parse_custom(sql: &str) -> Result<Vec<HelionStatement>> {
     let sql = sql.trim().trim_end_matches(';');
     let upper = sql.to_uppercase().trim().to_string();
+
+    if upper.starts_with("CREATE TABLE ") {
+        return parse_create_table_with_engine(sql);
+    }
+
+    if upper.starts_with("ALTER TABLE ") {
+        return parse_alter_table_engine(sql);
+    }
 
     if upper.starts_with("CREATE USER ") || upper.starts_with("CREATE USER IF NOT EXISTS ") {
         let exists = upper.contains("IF NOT EXISTS");
@@ -364,6 +387,7 @@ fn convert_statement(stmt: SqlStatement) -> Result<HelionStatement> {
             Ok(HelionStatement::CreateTable {
                 name: table_name,
                 columns: cols,
+                engine: None,
             })
         }
         SqlStatement::Drop { object_type, if_exists, names, .. } => {
@@ -450,6 +474,86 @@ fn convert_statement(stmt: SqlStatement) -> Result<HelionStatement> {
             other
         ))),
     }
+}
+
+fn looks_like_create_table_with_engine(sql: &str) -> bool {
+    let upper = sql.to_uppercase();
+    upper.starts_with("CREATE TABLE ") && upper.contains(" ENGINE")
+}
+
+fn looks_like_alter_table_engine(sql: &str) -> bool {
+    let upper = sql.to_uppercase();
+    upper.starts_with("ALTER TABLE ") && upper.contains(" ENGINE")
+}
+
+fn parse_create_table_with_engine(sql: &str) -> Result<Vec<HelionStatement>> {
+    let sql = sql.trim().trim_end_matches(';').trim();
+    let upper = sql.to_uppercase();
+    let engine_pos = upper.rfind(" ENGINE").ok_or_else(|| {
+        HelionError::Parse("Expected ENGINE clause in CREATE TABLE statement".into())
+    })?;
+
+    let create_sql = sql[..engine_pos].trim();
+    let engine_clause = sql[engine_pos..].trim();
+    let engine = parse_engine_clause(engine_clause)?;
+
+    let dialect = PostgreSqlDialect {};
+    let statements = SqlParser::parse_sql(&dialect, create_sql)
+        .map_err(|e| HelionError::Parse(e.to_string()))?;
+    let mut result = Vec::new();
+    for stmt in statements {
+        let mut converted = convert_statement(stmt)?;
+        if let HelionStatement::CreateTable { engine: table_engine, .. } = &mut converted {
+            *table_engine = Some(engine.clone());
+        }
+        result.push(converted);
+    }
+    Ok(result)
+}
+
+fn parse_alter_table_engine(sql: &str) -> Result<Vec<HelionStatement>> {
+    let sql = sql.trim().trim_end_matches(';').trim();
+    let upper = sql.to_uppercase();
+    let prefix = "ALTER TABLE ";
+    let _after_prefix = sql.get(prefix.len()..).ok_or_else(|| {
+        HelionError::Parse("Expected ALTER TABLE statement".into())
+    })?.trim();
+
+    let engine_pos = upper.rfind(" ENGINE").ok_or_else(|| {
+        HelionError::Parse("Expected ENGINE clause in ALTER TABLE statement".into())
+    })?;
+    let before_engine = sql[prefix.len()..engine_pos].trim();
+    let mut parts = before_engine.split_whitespace();
+    let name = parts.next().ok_or_else(|| {
+        HelionError::Parse("Expected table name in ALTER TABLE statement".into())
+    })?;
+
+    if parts.next().is_some() {
+        return Err(HelionError::Parse("Unsupported ALTER TABLE syntax".into()));
+    }
+
+    let engine_clause = sql[engine_pos..].trim();
+    let engine = parse_engine_clause(engine_clause)?;
+
+    Ok(vec![HelionStatement::AlterTableEngine {
+        name: name.trim_matches('`').to_string(),
+        engine,
+    }])
+}
+
+fn parse_engine_clause(clause: &str) -> Result<String> {
+    let clause = clause.trim().trim_end_matches(';').trim();
+    let upper = clause.to_uppercase();
+    if !upper.starts_with("ENGINE") {
+        return Err(HelionError::Parse("Expected ENGINE clause".into()));
+    }
+
+    let rhs = clause["ENGINE".len()..].trim();
+    let rhs = rhs.strip_prefix('=').unwrap_or(rhs).trim();
+    let engine = rhs.split_whitespace().next().ok_or_else(|| {
+        HelionError::Parse("Expected engine name".into())
+    })?;
+    Ok(engine.trim_matches('`').to_string())
 }
 
 fn convert_query(query: ast::Query) -> Result<HelionStatement> {
@@ -704,7 +808,7 @@ mod tests {
         let stmts = parse(sql).unwrap();
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
-            HelionStatement::CreateTable { name, columns } => {
+            HelionStatement::CreateTable { name, columns, engine } => {
                 assert_eq!(name, "users");
                 assert_eq!(columns.len(), 3);
                 assert!(columns[0].is_primary_key);
@@ -713,6 +817,7 @@ mod tests {
                 assert!(columns[2].nullable);
                 assert_eq!(columns[0].data_type, DataType::Integer);
                 assert_eq!(columns[1].data_type, DataType::Text);
+                assert!(engine.is_none());
             }
             _ => panic!("Expected CreateTable"),
         }
@@ -1039,6 +1144,31 @@ mod tests {
                 assert_eq!(password, "test123");
             }
             _ => panic!("Expected CreateUser"),
+            }
         }
     }
-}
+
+    #[test]
+    fn test_parse_create_table_with_engine() {
+        let sql = "CREATE TABLE users (id INTEGER) ENGINE = disk";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::CreateTable { engine, .. } => {
+                assert_eq!(engine.as_deref(), Some("disk"));
+            }
+            _ => panic!("Expected CreateTable"),
+        }
+    }
+
+    #[test]
+    fn test_parse_alter_table_engine() {
+        let sql = "ALTER TABLE users ENGINE = memory";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::AlterTableEngine { name, engine } => {
+                assert_eq!(name, "users");
+                assert_eq!(engine, "memory");
+            }
+            _ => panic!("Expected AlterTableEngine"),
+        }
+    }

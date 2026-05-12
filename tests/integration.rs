@@ -597,6 +597,55 @@ async fn test_wal_recovery_drop_table() {
     }
 }
 
+#[tokio::test]
+async fn test_disk_engine_persists_across_restart() {
+    let dir = TempDir::new().unwrap();
+    {
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory").await.unwrap();
+        exec(&engine, "CREATE TABLE disk_items (id INTEGER, name TEXT) ENGINE = disk").await;
+        exec(&engine, "INSERT INTO disk_items VALUES (1, 'alpha')").await;
+        engine.shutdown().await.unwrap();
+    }
+
+    {
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory").await.unwrap();
+        let result = exec(&engine, "SELECT * FROM disk_items").await;
+        assert_eq!(result.rows, vec![vec!["1".to_string(), "alpha".to_string()]]);
+        engine.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_alter_table_engine_roundtrip() {
+    let dir = TempDir::new().unwrap();
+    {
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory").await.unwrap();
+        exec(&engine, "CREATE TABLE migrate_me (id INTEGER, name TEXT)").await;
+        exec(&engine, "INSERT INTO migrate_me VALUES (1, 'before')").await;
+        exec(&engine, "ALTER TABLE migrate_me ENGINE = disk").await;
+        exec(&engine, "INSERT INTO migrate_me VALUES (2, 'after')").await;
+        let tables = engine.get_tables().await;
+        let visible = tables[0].scan_visible(u64::MAX, &std::collections::BTreeSet::new());
+        assert_eq!(visible.len(), 2);
+        let live = exec(&engine, "SELECT id, name FROM migrate_me ORDER BY id").await;
+        assert_eq!(live.rows, vec![
+            vec!["1".to_string(), "before".to_string()],
+            vec!["2".to_string(), "after".to_string()],
+        ]);
+        engine.shutdown().await.unwrap();
+    }
+
+    {
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory").await.unwrap();
+        let result = exec(&engine, "SELECT id, name FROM migrate_me ORDER BY id").await;
+        assert_eq!(result.rows, vec![
+            vec!["1".to_string(), "before".to_string()],
+            vec!["2".to_string(), "after".to_string()],
+        ]);
+        engine.shutdown().await.unwrap();
+    }
+}
+
 // ── Error Handling Tests ────────────────────────────────────────────
 
 #[tokio::test]

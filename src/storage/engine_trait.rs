@@ -23,10 +23,14 @@ impl TableMeta {
             .unwrap_or(0);
         TableMeta {
             name: name.to_string(),
-            engine: engine.to_string(),
+            engine: normalize_engine_name(engine),
             created_at,
         }
     }
+}
+
+pub fn normalize_engine_name(engine: &str) -> String {
+    engine.trim().to_ascii_lowercase()
 }
 
 #[async_trait]

@@ -21,8 +21,8 @@ pub async fn execute_as(
 ) -> Result<QueryResult> {
     match plan {
         // ── Table DDL ─────────────────────────────────────────────────
-        LogicalPlan::CreateTable { name, columns } => {
-            engine.create_table(name, columns.clone()).await?;
+        LogicalPlan::CreateTable { name, columns, engine: table_engine } => {
+            engine.create_table(name, columns.clone(), table_engine.as_deref()).await?;
             Ok(QueryResult { columns: vec![], column_types: vec![], rows: vec![], rows_affected: 0 })
         }
         LogicalPlan::DropTable { name, if_exists } => {
@@ -31,6 +31,10 @@ pub async fn execute_as(
                 Err(HelionError::TableNotFound(_)) if *if_exists => Ok(QueryResult { columns: vec![], column_types: vec![], rows: vec![], rows_affected: 0 }),
                 Err(e) => Err(e),
             }
+        }
+        LogicalPlan::AlterTableEngine { name, engine: target_engine } => {
+            engine.alter_table_engine(name, target_engine).await?;
+            Ok(QueryResult { columns: vec![], column_types: vec![], rows: vec![], rows_affected: 0 })
         }
 
         // ── DML ───────────────────────────────────────────────────────
@@ -90,7 +94,7 @@ pub async fn execute_as(
                     .filter(|(_, row)| eval::evaluate(wc, &row.values, table_columns)
                         .map(|d| matches!(d, Datum::Boolean(true))).unwrap_or(false))
                     .collect()
-            } else { visible_rows };
+                } else { visible_rows };
 
             let mut sorted: Vec<(usize, &Row)> = filtered;
             if !order_by.is_empty() {

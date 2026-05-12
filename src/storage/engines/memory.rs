@@ -26,7 +26,7 @@ impl MemoryEngine {
 #[async_trait]
 impl StorageEngine for MemoryEngine {
     fn name(&self) -> &str {
-        "Memory"
+        "memory"
     }
 
     async fn create_table(&self, _meta: &TableMeta, columns: Vec<ColumnMeta>) -> Result<()> {

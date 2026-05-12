@@ -27,6 +27,10 @@ struct Cli {
     /// Durability mode: async (fast) or sync (safe)
     #[arg(long, default_value = "async")]
     durability: String,
+
+    /// Default storage engine for new tables
+    #[arg(long, default_value = "memory")]
+    default_engine: String,
 }
 
 #[tokio::main]
@@ -44,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Listen address: quic://{}", cli.listen);
 
     // Open database engine (creates or replays WAL)
-    let engine = DatabaseEngine::open(cli.data_dir.as_ref()).await?;
+    let engine = DatabaseEngine::open_with_default_engine(cli.data_dir.as_ref(), &cli.default_engine).await?;
 
     info!("Database engine initialized");
 
