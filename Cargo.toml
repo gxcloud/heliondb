@@ -1,0 +1,44 @@
+[package]
+name = "heliondb"
+version = "0.1.0"
+edition = "2021"
+description = "An extremely fast in-memory SQL database with PostgreSQL-compatible syntax, async WAL persistence, and QUIC transport."
+authors = ["Alexander Gauss <alexgauss@users.noreply.github.com>"]
+license = "MIT"
+repository = "https://github.com/gxcloud/heliondb"
+keywords = ["database", "sql", "in-memory", "quic", "tokio"]
+categories = ["database", "network"]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+quinn = "0.11"
+rustls = "0.23"
+rustls-pemfile = "2"
+sqlparser = "0.55"
+dashmap = "6"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+anyhow = "1"
+thiserror = "2"
+tokio-util = "0.7"
+bytes = "1"
+crc32fast = "1"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+rand = "0.8"
+
+[lib]
+name = "heliondb"
+path = "src/lib.rs"
+
+[[bin]]
+name = "heliondb"
+path = "src/main.rs"
