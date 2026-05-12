@@ -314,4 +314,88 @@ mod tests {
         assert!(t.latest_visible(&chain, 15, &active).is_none());
         assert!(t.latest_visible(&chain, 7, &active).is_some());
     }
+
+    #[test]
+    fn test_scan_visible_empty_table() {
+        let t = test_table();
+        let active = BTreeSet::new();
+        let visible = t.scan_visible(100, &active);
+        assert_eq!(visible.len(), 0);
+    }
+
+    #[test]
+    fn test_scan_visible_all_uncommitted() {
+        let mut t = test_table();
+        t.version_chains.push(vec![
+            RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]))
+        ]);
+        let mut active = BTreeSet::new();
+        active.insert(5);
+        // tx 5 is still active, so no rows should be visible
+        let visible = t.scan_visible(10, &active);
+        assert_eq!(visible.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_updates_same_row() {
+        let mut t = test_table();
+        let row = Row::new(vec![Datum::Integer(1), Datum::Text("v1".into())]);
+        t.version_chains.push(vec![RowVersion::new_insert(5, row)]);
+
+        // Update twice
+        let v2 = Row::new(vec![Datum::Integer(1), Datum::Text("v2".into())]);
+        t.version_chains[0].push(RowVersion::new_update(10, v2));
+        let v3 = Row::new(vec![Datum::Integer(1), Datum::Text("v3".into())]);
+        t.version_chains[0].push(RowVersion::new_update(15, v3));
+
+        let active = BTreeSet::new();
+
+        // Should see latest version at tx 20
+        let visible = t.scan_visible(20, &active);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].1.get(1), Some(&Datum::Text("v3".into())));
+
+        // Should see v2 at tx 12
+        let visible = t.scan_visible(12, &active);
+        assert_eq!(visible[0].1.get(1), Some(&Datum::Text("v2".into())));
+
+        // Should see v1 at tx 7
+        let visible = t.scan_visible(7, &active);
+        assert_eq!(visible[0].1.get(1), Some(&Datum::Text("v1".into())));
+    }
+
+    #[test]
+    fn test_get_visible_version_out_of_range() {
+        let t = test_table();
+        let active = BTreeSet::new();
+        assert!(t.get_visible_version(0, 100, &active).is_none());
+        assert!(t.get_visible_version(999, 100, &active).is_none());
+    }
+
+    #[test]
+    fn test_types_compatible_self() {
+        assert!(types_compatible(&DataType::Integer, &DataType::Integer));
+        assert!(types_compatible(&DataType::Text, &DataType::Text));
+    }
+
+    #[test]
+    fn test_types_compatible_numeric() {
+        assert!(types_compatible(&DataType::Integer, &DataType::BigInt));
+        assert!(types_compatible(&DataType::BigInt, &DataType::Integer));
+        assert!(types_compatible(&DataType::Double, &DataType::Integer));
+    }
+
+    #[test]
+    fn test_types_compatible_string() {
+        assert!(types_compatible(&DataType::VarChar(None), &DataType::Text));
+        assert!(types_compatible(&DataType::Text, &DataType::VarChar(Some(100))));
+        assert!(types_compatible(&DataType::Char(None), &DataType::Text));
+    }
+
+    #[test]
+    fn test_types_compatible_incompatible() {
+        assert!(!types_compatible(&DataType::Integer, &DataType::Text));
+        assert!(!types_compatible(&DataType::Boolean, &DataType::Integer));
+        assert!(!types_compatible(&DataType::Date, &DataType::Text));
+    }
 }

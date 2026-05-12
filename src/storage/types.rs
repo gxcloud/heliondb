@@ -280,4 +280,69 @@ mod tests {
         assert_eq!(row.get(0), Some(&Datum::Integer(1)));
         assert_eq!(row.get(2), None);
     }
+
+    #[test]
+    fn test_datum_edge_cases() {
+        assert_eq!(Datum::Integer(i32::MAX).display(), "2147483647");
+        assert_eq!(Datum::Integer(i32::MIN).display(), "-2147483648");
+        assert_eq!(Datum::BigInt(i64::MAX).display(), "9223372036854775807");
+        assert_eq!(Datum::Double(f64::INFINITY).display(), "inf");
+        assert_eq!(Datum::Double(f64::NEG_INFINITY).display(), "-inf");
+    }
+
+    #[test]
+    fn test_datum_from_i64() {
+        assert_eq!(Datum::from(42i64), Datum::BigInt(42));
+        assert_eq!(Datum::from(-1i64), Datum::BigInt(-1));
+    }
+
+    #[test]
+    fn test_datum_from_f64() {
+        assert_eq!(Datum::from(3.14f64), Datum::Double(3.14));
+        assert_eq!(Datum::from(-0.0f64), Datum::Double(-0.0));
+    }
+
+    #[test]
+    fn test_column_meta_defaults() {
+        let col = ColumnMeta::new("col", DataType::Text);
+        assert!(col.nullable);
+        assert!(!col.is_primary_key);
+        assert!(!col.is_unique);
+        assert!(col.default.is_none());
+    }
+
+    #[test]
+    fn test_column_meta_not_null() {
+        let col = ColumnMeta::new("col", DataType::Integer).not_null();
+        assert!(!col.nullable);
+    }
+
+    #[test]
+    fn test_data_type_from_sql_supported() {
+        let result = DataType::from_sql(sqlparser::ast::DataType::Text);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), DataType::Text);
+    }
+
+    #[test]
+    fn test_data_type_from_sql_null() {
+        // The Null type might not parse from SQL but should still exist in our enum
+        assert_eq!(DataType::Null.name(), "NULL");
+        assert!(Datum::Null.is_null());
+    }
+
+    #[test]
+    fn test_is_null() {
+        assert!(Datum::Null.is_null());
+        assert!(!Datum::Integer(0).is_null());
+        assert!(!Datum::Boolean(false).is_null());
+        assert!(!Datum::Text("".into()).is_null());
+    }
+
+    #[test]
+    fn test_data_type_eq() {
+        assert_eq!(DataType::Integer, DataType::Integer);
+        assert_ne!(DataType::Integer, DataType::Text);
+        assert_eq!(DataType::VarChar(Some(100)), DataType::VarChar(Some(100)));
+    }
 }

@@ -459,4 +459,204 @@ mod tests {
         let result = evaluate(&expr, &[], &test_columns());
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_evaluate_arithmetic_add() {
+        let expr = Expression::BinaryOp {
+            left: Box::new(Expression::Literal(Datum::Integer(10))),
+            op: BinaryOperator::Add,
+            right: Box::new(Expression::Literal(Datum::Integer(20))),
+        };
+        let result = evaluate(&expr, &[], &[]).unwrap();
+        assert_eq!(result, Datum::Integer(30));
+    }
+
+    #[test]
+    fn test_evaluate_arithmetic_sub() {
+        let expr = Expression::BinaryOp {
+            left: Box::new(Expression::Literal(Datum::Integer(100))),
+            op: BinaryOperator::Sub,
+            right: Box::new(Expression::Literal(Datum::Integer(30))),
+        };
+        let result = evaluate(&expr, &[], &[]).unwrap();
+        assert_eq!(result, Datum::Integer(70));
+    }
+
+    #[test]
+    fn test_evaluate_arithmetic_mul() {
+        let expr = Expression::BinaryOp {
+            left: Box::new(Expression::Literal(Datum::Integer(7))),
+            op: BinaryOperator::Mul,
+            right: Box::new(Expression::Literal(Datum::Integer(6))),
+        };
+        let result = evaluate(&expr, &[], &[]).unwrap();
+        assert_eq!(result, Datum::Integer(42));
+    }
+
+    #[test]
+    fn test_evaluate_arithmetic_div() {
+        let expr = Expression::BinaryOp {
+            left: Box::new(Expression::Literal(Datum::Integer(10))),
+            op: BinaryOperator::Div,
+            right: Box::new(Expression::Literal(Datum::Integer(3))),
+        };
+        let result = evaluate(&expr, &[], &[]).unwrap();
+        assert_eq!(result, Datum::Integer(3));
+    }
+
+    #[test]
+    fn test_evaluate_not() {
+        let expr = Expression::UnaryOp {
+            op: UnaryOperator::Not,
+            expr: Box::new(Expression::Literal(Datum::Boolean(false))),
+        };
+        let result = evaluate(&expr, &[], &[]).unwrap();
+        assert_eq!(result, Datum::Boolean(true));
+    }
+
+    #[test]
+    fn test_evaluate_neg() {
+        let expr = Expression::UnaryOp {
+            op: UnaryOperator::Neg,
+            expr: Box::new(Expression::Literal(Datum::Integer(42))),
+        };
+        let result = evaluate(&expr, &[], &[]).unwrap();
+        assert_eq!(result, Datum::Integer(-42));
+    }
+
+    #[test]
+    fn test_evaluate_is_not_null() {
+        let expr = Expression::IsNotNull(Box::new(Expression::Column("name".to_string())));
+        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let result = evaluate(&expr, &row, &test_columns()).unwrap();
+        assert_eq!(result, Datum::Boolean(true));
+    }
+
+    #[test]
+    fn test_evaluate_in_empty_list() {
+        let expr = Expression::In {
+            expr: Box::new(Expression::Column("age".to_string())),
+            list: vec![],
+        };
+        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let result = evaluate(&expr, &row, &test_columns()).unwrap();
+        assert_eq!(result, Datum::Boolean(false));
+    }
+
+    #[test]
+    fn test_evaluate_between_not_matching() {
+        let expr = Expression::Between {
+            expr: Box::new(Expression::Column("age".to_string())),
+            low: Box::new(Expression::Literal(Datum::Integer(40))),
+            high: Box::new(Expression::Literal(Datum::Integer(50))),
+        };
+        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let result = evaluate(&expr, &row, &test_columns()).unwrap();
+        assert_eq!(result, Datum::Boolean(false));
+    }
+
+    #[test]
+    fn test_evaluate_like_no_wildcard() {
+        let expr = Expression::Like {
+            expr: Box::new(Expression::Column("name".to_string())),
+            pattern: "Alice".to_string(),
+        };
+        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let result = evaluate(&expr, &row, &test_columns()).unwrap();
+        assert_eq!(result, Datum::Boolean(true));
+    }
+
+    #[test]
+    fn test_evaluate_like_ends_with() {
+        let expr = Expression::Like {
+            expr: Box::new(Expression::Column("name".to_string())),
+            pattern: "%ice".to_string(),
+        };
+        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let result = evaluate(&expr, &row, &test_columns()).unwrap();
+        assert_eq!(result, Datum::Boolean(true));
+    }
+
+    #[test]
+    fn test_evaluate_like_underscore() {
+        let expr = Expression::Like {
+            expr: Box::new(Expression::Column("name".to_string())),
+            pattern: "A____".to_string(),
+        };
+        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let result = evaluate(&expr, &row, &test_columns()).unwrap();
+        assert_eq!(result, Datum::Boolean(true));
+    }
+
+    #[test]
+    fn test_function_upper() {
+        let result = evaluate_function("upper", &[Datum::Text("hello".into())]).unwrap();
+        assert_eq!(result, Datum::Text("HELLO".into()));
+    }
+
+    #[test]
+    fn test_function_length() {
+        let result = evaluate_function("length", &[Datum::Text("hello".into())]).unwrap();
+        assert_eq!(result, Datum::Integer(5));
+    }
+
+    #[test]
+    fn test_function_ifnull() {
+        let r = evaluate_function("ifnull", &[Datum::Null, Datum::Integer(42)]).unwrap();
+        assert_eq!(r, Datum::Integer(42));
+        let r = evaluate_function("ifnull", &[Datum::Integer(1), Datum::Integer(2)]).unwrap();
+        assert_eq!(r, Datum::Integer(1));
+    }
+
+    #[test]
+    fn test_function_abs() {
+        let r = evaluate_function("abs", &[Datum::Integer(-5)]).unwrap();
+        assert_eq!(r, Datum::Integer(5));
+    }
+
+    #[test]
+    fn test_function_round() {
+        let r = evaluate_function("round", &[Datum::Double(3.14159), Datum::Integer(2)]).unwrap();
+        assert_eq!(r, Datum::Double(3.14));
+    }
+
+    #[test]
+    fn test_function_unknown() {
+        let r = evaluate_function("nonexistent", &[]);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_evaluate_binary_or() {
+        let expr = Expression::BinaryOp {
+            left: Box::new(Expression::Literal(Datum::Boolean(false))),
+            op: BinaryOperator::Or,
+            right: Box::new(Expression::Literal(Datum::Boolean(true))),
+        };
+        let result = evaluate(&expr, &[], &[]).unwrap();
+        assert_eq!(result, Datum::Boolean(true));
+    }
+
+    #[test]
+    fn test_evaluate_null_equals_null() {
+        let expr = Expression::BinaryOp {
+            left: Box::new(Expression::Literal(Datum::Null)),
+            op: BinaryOperator::Eq,
+            right: Box::new(Expression::Literal(Datum::Null)),
+        };
+        let result = evaluate(&expr, &[], &[]).unwrap();
+        // NULL = NULL should be NULL (null propagation)
+        assert_eq!(result, Datum::Null);
+    }
+
+    #[test]
+    fn test_evaluate_like_not_matching() {
+        let expr = Expression::Like {
+            expr: Box::new(Expression::Column("name".to_string())),
+            pattern: "B%".to_string(),
+        };
+        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let result = evaluate(&expr, &row, &test_columns()).unwrap();
+        assert_eq!(result, Datum::Boolean(false));
+    }
 }

@@ -74,11 +74,16 @@ pub struct MvccStore {
 
 impl MvccStore {
     pub fn new() -> Self {
+        MvccStore::with_start_id(1)
+    }
+
+    /// Create an MVCC store starting transaction IDs from a given value.
+    /// Used after WAL recovery to ensure new snapshots can see replayed changes.
+    pub fn with_start_id(start_id: TransactionId) -> Self {
         let mut active = BTreeSet::new();
-        // txid 0 is reserved for "no transaction" / system operations
         active.insert(0);
         MvccStore {
-            next_txid: AtomicU64::new(1),
+            next_txid: AtomicU64::new(start_id.max(1)),
             active_txns: RwLock::new(active),
         }
     }
@@ -373,5 +378,53 @@ mod tests {
         store.rollback_transaction(&tx);
         let active = store.active_txns.read();
         assert!(!active.contains(&tx.tx_id));
+    }
+
+    #[test]
+    fn test_apply_delete_in_chain() {
+        let tables = setup_tables();
+        let _store = MvccStore::new();
+        let tx = Transaction::new(99, Snapshot::new(99, BTreeSet::new()));
+
+        let entries = vec![WriteEntry {
+            table_name: "users".to_string(),
+            row_idx: 0,
+            old_txid_max: u64::MAX,
+            operation: WriteOp::Delete,
+        }];
+
+        let changes = MvccStore::apply_write_set(&entries, &tables, tx.tx_id);
+        if let Some(chains) = changes.get("users") {
+            assert_eq!(chains[0].len(), 2);
+            assert!(chains[0][1].is_deleted);
+        }
+    }
+
+    #[test]
+    fn test_snapshot_does_not_include_self() {
+        let store = MvccStore::new();
+        let tx = store.begin_transaction();
+        assert!(!tx.snapshot.active.contains(&tx.tx_id));
+    }
+
+    #[test]
+    fn test_next_txid_increases() {
+        let store = MvccStore::new();
+        let id1 = store.next_txid();
+        let id2 = store.next_txid();
+        assert_eq!(id2, id1 + 1);
+    }
+
+    #[test]
+    fn test_concurrent_begin_transactions() {
+        let store = MvccStore::new();
+        let tx1 = store.begin_transaction();
+        let tx2 = store.begin_transaction();
+
+        assert_ne!(tx1.tx_id, tx2.tx_id);
+        // tx2's snapshot should include tx1 (which is still active)
+        assert!(tx2.snapshot.active.contains(&tx1.tx_id));
+        // tx1's snapshot should NOT include tx2 (tx2 started after tx1)
+        assert!(!tx1.snapshot.active.contains(&tx2.tx_id));
     }
 }

@@ -13,6 +13,102 @@ use crate::storage::types::ColumnMeta;
 use crate::storage::users::{User, UserStore};
 use crate::storage::wal::{replay_wal, WalRecord, WalWriter};
 
+/// Compute the maximum transaction ID found across all version chains.
+fn compute_max_txid(tables: &[Table]) -> Option<u64> {
+    tables.iter()
+        .flat_map(|t| t.version_chains.iter())
+        .flat_map(|chain| chain.iter())
+        .map(|v| v.txid_min.max(v.txid_max))
+        .filter(|&id| id != u64::MAX)
+        .max()
+}
+
+/// Replay user records from the WAL file.
+async fn replay_users_from_wal(data_dir: &Path) -> Result<UserStore> {
+    let path = data_dir.join("helion.wal");
+    if !path.exists() {
+        return Ok(UserStore::new());
+    }
+
+    let bytes = tokio::fs::read(&path).await?;
+    let mut store = UserStore::new();
+    let mut offset = 0;
+
+    while offset + 8 <= bytes.len() {
+        let len_bytes: [u8; 8] = match bytes[offset..offset + 8].try_into() {
+            Ok(b) => b,
+            Err(_) => break,
+        };
+        let record_len = u64::from_le_bytes(len_bytes) as usize;
+        offset += 8;
+
+        if offset + record_len + 4 > bytes.len() {
+            break;
+        }
+
+        let data = &bytes[offset..offset + record_len];
+        offset += record_len + 4; // skip checksum
+
+        if let Ok(record) = bincode::deserialize::<WalRecord>(data) {
+            match record {
+                WalRecord::CreateUser { username, password_hash } => {
+                    if !store.user_exists(&username) {
+                        let _ = store.insert_user(User { username, password_hash });
+                    }
+                }
+                WalRecord::DropUser { username } => {
+                    let _ = store.drop_user(&username);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(store)
+}
+
+/// Replay permission records from the WAL file.
+async fn replay_permissions_from_wal(data_dir: &Path) -> Result<PermissionStore> {
+    let path = data_dir.join("helion.wal");
+    if !path.exists() {
+        return Ok(PermissionStore::new());
+    }
+
+    let bytes = tokio::fs::read(&path).await?;
+    let mut store = PermissionStore::new();
+    let mut offset = 0;
+
+    while offset + 8 <= bytes.len() {
+        let len_bytes: [u8; 8] = match bytes[offset..offset + 8].try_into() {
+            Ok(b) => b,
+            Err(_) => break,
+        };
+        let record_len = u64::from_le_bytes(len_bytes) as usize;
+        offset += 8;
+
+        if offset + record_len + 4 > bytes.len() {
+            break;
+        }
+
+        let data = &bytes[offset..offset + record_len];
+        offset += record_len + 4;
+
+        if let Ok(record) = bincode::deserialize::<WalRecord>(data) {
+            match record {
+                WalRecord::Grant { username, table, permission } => {
+                    store.grant(&username, &table, permission);
+                }
+                WalRecord::Revoke { username, table, permission } => {
+                    store.revoke(&username, &table, &permission);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(store)
+}
+
 /// The central database engine that ties together MVCC, storage, and WAL persistence.
 pub struct DatabaseEngine {
     /// All tables in the database (protected by RwLock for concurrent read access).
@@ -38,17 +134,22 @@ impl DatabaseEngine {
             std::fs::create_dir_all(data_dir)?;
         }
 
-        // Try to replay WAL
+        // Replay WAL for both tables and user/permission records
         let tables = replay_wal(data_dir).await?;
-        info!("Replayed WAL: {} tables restored", tables.len());
+        let max_txid = compute_max_txid(&tables);
+        info!("Replayed WAL: {} tables restored (max txid: {:?})", tables.len(), max_txid);
+
+        let users = replay_users_from_wal(data_dir).await?;
+        info!("Replayed WAL: {} users restored", users.user_count());
+
+        let permissions = replay_permissions_from_wal(data_dir).await?;
+        info!("Replayed WAL: {} permission grants restored", permissions.all_grants().len());
 
         let wal_writer = Arc::new(Mutex::new(WalWriter::open(data_dir).await?));
-        let users = UserStore::new();
-        let permissions = PermissionStore::new();
 
         let engine = DatabaseEngine {
             tables: Arc::new(RwLock::new(tables)),
-            mvcc: MvccStore::new(),
+            mvcc: MvccStore::with_start_id(max_txid.map(|id| id + 1).unwrap_or(1)),
             wal_writer,
             data_dir: data_dir.to_path_buf(),
             cancel: CancellationToken::new(),
@@ -306,6 +407,10 @@ impl DatabaseEngine {
     pub fn get_user_count(&self) -> usize {
         // sync version for use in non-async contexts
         0 // placeholder — use get_users() for async
+    }
+
+    pub async fn has_permission(&self, username: &str, table: &str, columns: &[&str]) -> bool {
+        self.permissions.read().await.can_select(username, table, columns)
     }
 
     pub async fn get_users(&self) -> Vec<User> {

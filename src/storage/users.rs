@@ -88,6 +88,14 @@ impl UserStore {
         Ok(())
     }
 
+    pub fn insert_user(&mut self, user: User) -> Result<()> {
+        if self.user_exists(&user.username) {
+            return Err(HelionError::Internal(format!("User '{}' already exists", user.username)));
+        }
+        self.users.push(user);
+        Ok(())
+    }
+
     pub fn drop_user(&mut self, username: &str) -> Result<()> {
         let initial_len = self.users.len();
         self.users.retain(|u| !u.username.eq_ignore_ascii_case(username));

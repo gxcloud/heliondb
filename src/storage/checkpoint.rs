@@ -33,8 +33,6 @@ pub async fn checkpoint_loop(
             }
             _ = cancel.cancelled() => {
                 info!("Checkpoint loop cancelled");
-                // Write final checkpoint on shutdown
-                let _ = write_checkpoint(&data_dir, &tables, &wal_writer).await;
                 break;
             }
         }
@@ -55,6 +53,10 @@ pub async fn write_checkpoint(
         .map(|t| {
             let columns = t.columns.clone();
             let chains = t.version_chains.clone();
+            // Debug: print row counts per table
+            let visible = t.scan_visible(u64::MAX, &std::collections::BTreeSet::new());
+            tracing::debug!("Checkpoint: table '{}' has {} version chains, {} visible",
+                t.name, chains.len(), visible.len());
             (t.name.clone(), columns, chains)
         })
         .collect();
