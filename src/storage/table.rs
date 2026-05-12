@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::error::{HelionError, Result};
-use crate::storage::types::{ColumnMeta, Row};
+use crate::storage::types::{ColumnMeta, DataType, Row};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RowVersion {
@@ -129,7 +129,7 @@ impl Table {
                 continue;
             }
             let actual = datum.data_type();
-            if std::mem::discriminant(&col.data_type) != std::mem::discriminant(&actual) {
+            if !types_compatible(&col.data_type, &actual) {
                 return Err(HelionError::TypeMismatch {
                     expected: col.data_type.to_string(),
                     actual: actual.to_string(),
@@ -159,6 +159,36 @@ pub fn is_version_visible(
         return false;
     }
     true
+}
+
+/// Check if two types are compatible (allow implicit casts).
+fn types_compatible(expected: &DataType, actual: &DataType) -> bool {
+    if expected == actual {
+        return true;
+    }
+    // Numeric types are compatible
+    match (expected, actual) {
+        (DataType::Integer, DataType::BigInt)
+        | (DataType::BigInt, DataType::Integer)
+        | (DataType::Integer, DataType::SmallInt)
+        | (DataType::SmallInt, DataType::Integer)
+        | (DataType::BigInt, DataType::SmallInt)
+        | (DataType::SmallInt, DataType::BigInt)
+        | (DataType::Double, DataType::Integer)
+        | (DataType::Double, DataType::BigInt)
+        | (DataType::Integer, DataType::Double)
+        | (DataType::BigInt, DataType::Double)
+        | (DataType::Real, DataType::Double)
+        | (DataType::Double, DataType::Real) => true,
+        // String types are compatible
+        (DataType::VarChar(_), DataType::Text)
+        | (DataType::Text, DataType::VarChar(_))
+        | (DataType::Char(_), DataType::Text)
+        | (DataType::Text, DataType::Char(_))
+        | (DataType::VarChar(_), DataType::Char(_))
+        | (DataType::Char(_), DataType::VarChar(_)) => true,
+        _ => false,
+    }
 }
 
 #[cfg(test)]

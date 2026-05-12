@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::{self, Duration};
 use tracing::{error, info, warn};
 
@@ -17,7 +17,7 @@ const CHECKPOINT_INTERVAL_SECS: u64 = 60;
 pub async fn checkpoint_loop(
     data_dir: PathBuf,
     tables: Arc<RwLock<Vec<Table>>>,
-    wal_writer: Arc<WalWriter>,
+    wal_writer: Arc<Mutex<WalWriter>>,
     interval_secs: u64,
     cancel: tokio_util::sync::CancellationToken,
 ) {
@@ -45,7 +45,7 @@ pub async fn checkpoint_loop(
 pub async fn write_checkpoint(
     _data_dir: &Path,
     tables: &Arc<RwLock<Vec<Table>>>,
-    wal_writer: &Arc<WalWriter>,
+    wal_writer: &Arc<Mutex<WalWriter>>,
 ) -> Result<()> {
     let tables_guard = tables.read().await;
     let table_count = tables_guard.len() as u32;
@@ -60,12 +60,12 @@ pub async fn write_checkpoint(
         .collect();
     drop(tables_guard);
 
-    // Write checkpoint record to WAL (which will be replayed on next startup)
+    // Write checkpoint record to WAL (will be replayed on next startup)
     let record = WalRecord::Checkpoint {
         table_count,
         tables: checkpoint_tables,
     };
-    wal_writer.append(record)?;
+    wal_writer.lock().await.append(record).await?;
 
     info!("Checkpoint written ({} tables)", table_count);
     Ok(())
@@ -102,7 +102,7 @@ pub async fn load_checkpoint(data_dir: &Path) -> Result<Option<Vec<Table>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::types::DataType;
+
     use tempfile::TempDir;
 
     fn setup_test_dir() -> TempDir {

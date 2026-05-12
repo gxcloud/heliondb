@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
@@ -17,8 +17,8 @@ pub struct DatabaseEngine {
     pub(crate) tables: Arc<RwLock<Vec<Table>>>,
     /// MVCC transaction store.
     pub(crate) mvcc: MvccStore,
-    /// WAL writer (shared across tasks).
-    wal_writer: Arc<WalWriter>,
+    /// WAL writer (shared across tasks, mutex for sync access).
+    wal_writer: Arc<Mutex<WalWriter>>,
     /// Data directory for persistence.
     data_dir: PathBuf,
     /// Cancellation token for background tasks.
@@ -36,12 +36,12 @@ impl DatabaseEngine {
         let tables = replay_wal(data_dir).await?;
         info!("Replayed WAL: {} tables restored", tables.len());
 
-        let wal_writer = WalWriter::open(data_dir).await?;
+        let wal_writer = Arc::new(Mutex::new(WalWriter::open(data_dir).await?));
 
         let engine = DatabaseEngine {
             tables: Arc::new(RwLock::new(tables)),
             mvcc: MvccStore::new(),
-            wal_writer: Arc::new(wal_writer),
+            wal_writer,
             data_dir: data_dir.to_path_buf(),
             cancel: CancellationToken::new(),
         };
@@ -110,34 +110,36 @@ impl DatabaseEngine {
         }
 
         // Append all write operations to WAL
-        for entry in &tx.write_set {
-            match &entry.operation {
-                WriteOp::Insert(row) => {
-                    self.wal_writer.append(WalRecord::Insert {
-                        table: entry.table_name.clone(),
-                        row: row.clone(),
-                        txid: tx.tx_id,
-                    })?;
-                }
-                WriteOp::Update(new_row) => {
-                    self.wal_writer.append(WalRecord::Update {
-                        table: entry.table_name.clone(),
-                        row_idx: entry.row_idx,
-                        new_row: new_row.clone(),
-                        txid: tx.tx_id,
-                    })?;
-                }
-                WriteOp::Delete => {
-                    self.wal_writer.append(WalRecord::Delete {
-                        table: entry.table_name.clone(),
-                        row_idx: entry.row_idx,
-                        txid: tx.tx_id,
-                    })?;
+        {
+            let mut wal = self.wal_writer.lock().await;
+            for entry in &tx.write_set {
+                match &entry.operation {
+                    WriteOp::Insert(row) => {
+                        wal.append(WalRecord::Insert {
+                            table: entry.table_name.clone(),
+                            row: row.clone(),
+                            txid: tx.tx_id,
+                        }).await?;
+                    }
+                    WriteOp::Update(new_row) => {
+                        wal.append(WalRecord::Update {
+                            table: entry.table_name.clone(),
+                            row_idx: entry.row_idx,
+                            new_row: new_row.clone(),
+                            txid: tx.tx_id,
+                        }).await?;
+                    }
+                    WriteOp::Delete => {
+                        wal.append(WalRecord::Delete {
+                            table: entry.table_name.clone(),
+                            row_idx: entry.row_idx,
+                            txid: tx.tx_id,
+                        }).await?;
+                    }
                 }
             }
+            wal.append(WalRecord::Commit { txid: tx.tx_id }).await?;
         }
-
-        self.wal_writer.append(WalRecord::Commit { txid: tx.tx_id })?;
 
         self.mvcc.commit_transaction(tx);
         tx.status = TransactionStatus::Committed;
@@ -197,10 +199,10 @@ impl DatabaseEngine {
         }
         let table = Table::new(name, columns.clone());
         tables_guard.push(table);
-        self.wal_writer.append(WalRecord::CreateTable {
+        self.wal_writer.lock().await.append(WalRecord::CreateTable {
             name: name.to_string(),
             columns,
-        })?;
+        }).await?;
         debug!("Created table '{}'", name);
         Ok(())
     }
@@ -213,20 +215,23 @@ impl DatabaseEngine {
         if tables_guard.len() == initial_len {
             return Err(HelionError::TableNotFound(name.to_string()));
         }
-        self.wal_writer.append(WalRecord::DropTable {
+        self.wal_writer.lock().await.append(WalRecord::DropTable {
             name: name.to_string(),
-        })?;
+        }).await?;
         debug!("Dropped table '{}'", name);
         Ok(())
     }
 
     /// Shutdown the engine: write checkpoint, close WAL.
-    pub async fn shutdown(&self) -> Result<()> {
+    pub async fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down database engine...");
         self.cancel.cancel();
 
         // Write a final checkpoint
         write_checkpoint(&self.data_dir, &self.tables, &self.wal_writer).await?;
+
+        // Flush the WAL
+        self.wal_writer.lock().await.flush().await?;
 
         info!("Database engine shut down");
         Ok(())
@@ -363,7 +368,7 @@ mod tests {
 
         // Create engine, create table and insert data
         {
-            let engine = DatabaseEngine::open(dir.path()).await.unwrap();
+            let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
             engine
                 .create_table(
                     "users",
@@ -395,7 +400,7 @@ mod tests {
 
         // Re-open engine and verify data is restored from WAL
         {
-            let engine = DatabaseEngine::open(dir.path()).await.unwrap();
+            let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
             let tables = engine.get_tables().await;
             assert_eq!(tables.len(), 1);
             assert_eq!(tables[0].name, "users");

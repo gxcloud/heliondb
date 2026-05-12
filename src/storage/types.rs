@@ -85,7 +85,7 @@ impl fmt::Display for DataType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub enum Datum {
     Boolean(bool),
     SmallInt(i16),
@@ -183,7 +183,7 @@ impl From<&str> for Datum {
     fn from(s: &str) -> Self { Datum::Text(s.to_string()) }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ColumnMeta {
     pub name: String,
     pub data_type: DataType,
