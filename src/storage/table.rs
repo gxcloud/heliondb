@@ -118,7 +118,7 @@ impl Table {
                 self.columns.len()
             )));
         }
-        for (_i, (col, datum)) in self.columns.iter().zip(row.values.iter()).enumerate() {
+        for (col, datum) in self.columns.iter().zip(row.values.iter()) {
             if datum.is_null() {
                 if !col.nullable {
                     return Err(HelionError::ConstraintViolation(format!(
@@ -306,9 +306,10 @@ mod tests {
 
     #[test]
     fn test_latest_visible_skips_deleted() {
-        let mut chain = Vec::new();
-        chain.push(RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())])));
-        chain.push(RowVersion::new_delete(10, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())])));
+        let chain = vec![
+            RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())])),
+            RowVersion::new_delete(10, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())])),
+        ];
         let active = BTreeSet::new();
         let t = test_table();
         assert!(t.latest_visible(&chain, 15, &active).is_none());

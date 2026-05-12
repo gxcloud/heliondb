@@ -184,6 +184,12 @@ impl PermissionStore {
     }
 }
 
+impl Default for PermissionStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

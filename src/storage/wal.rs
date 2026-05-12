@@ -398,6 +398,6 @@ mod tests {
         // Replay should handle the corruption gracefully
         let tables = replay_wal(dir.path()).await.unwrap();
         // The valid record before the garbage should still be restored
-        assert!(tables.len() == 0 || tables.len() == 1);
+        assert!(tables.is_empty() || tables.len() == 1);
     }
 }

@@ -122,6 +122,12 @@ impl UserStore {
     }
 }
 
+impl Default for UserStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

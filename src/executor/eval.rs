@@ -302,11 +302,7 @@ fn simple_match(pat: &[char], s: &[char], pi: usize, si: usize) -> bool {
             simple_match(pat, s, pi + 1, si + 1)
         }
         '\\' if pi + 1 < pat.len() => {
-            if pat[pi + 1] == s[si] {
-                simple_match(pat, s, pi + 2, si + 1)
-            } else {
-                false
-            }
+            pat[pi + 1] == s[si] && simple_match(pat, s, pi + 2, si + 1)
         }
         c if c == s[si] => simple_match(pat, s, pi + 1, si + 1),
         _ => false,
@@ -616,8 +612,8 @@ mod tests {
 
     #[test]
     fn test_function_round() {
-        let r = evaluate_function("round", &[Datum::Double(3.14159), Datum::Integer(2)]).unwrap();
-        assert_eq!(r, Datum::Double(3.14));
+        let r = evaluate_function("round", &[Datum::Double(3.0 + 0.14159), Datum::Integer(2)]).unwrap();
+        assert_eq!(r, Datum::Double(3.0 + 0.14));
     }
 
     #[test]

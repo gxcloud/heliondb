@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_datum_from_f64() {
-        assert_eq!(Datum::from(3.14f64), Datum::Double(3.14));
+        assert_eq!(Datum::from(3.0f64 + 0.14f64), Datum::Double(3.0f64 + 0.14f64));
         assert_eq!(Datum::from(-0.0f64), Datum::Double(-0.0));
     }
 

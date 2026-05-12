@@ -210,6 +210,12 @@ impl MvccStore {
     }
 }
 
+impl Default for MvccStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

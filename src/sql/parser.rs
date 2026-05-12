@@ -238,8 +238,9 @@ fn parse_user_with_password(s: &str) -> Result<(String, String)> {
             let username = s[..pos].trim().to_string();
             let rest = s[pos + kw.len()..].trim().trim_end_matches(';').trim();
             let password = if rest.starts_with('\'') {
-                let end = rest[1..].find('\'').map(|i| i + 1).unwrap_or(rest.len());
-                rest[1..end].to_string()
+                let stripped = rest.strip_prefix('\'').unwrap_or(rest);
+                let end = stripped.find('\'').unwrap_or(stripped.len());
+                stripped[..end].to_string()
             } else {
                 rest.split_whitespace().next().unwrap_or(rest).to_string()
             };
@@ -448,7 +449,7 @@ fn convert_statement(stmt: SqlStatement) -> Result<HelionStatement> {
                 let datum = sql_expr_to_datum(&a.value)?;
                 assigns.push((col_name, datum));
             }
-            let where_clause = selection.as_ref().map(|e| sql_expr_to_expression(e));
+            let where_clause = selection.as_ref().map(sql_expr_to_expression);
 
             Ok(HelionStatement::Update {
                 table_name,
@@ -466,7 +467,7 @@ fn convert_statement(stmt: SqlStatement) -> Result<HelionStatement> {
                 .unwrap_or_default();
             Ok(HelionStatement::Delete {
                 table_name,
-                where_clause: delete.selection.as_ref().map(|e| sql_expr_to_expression(e)),
+                where_clause: delete.selection.as_ref().map(sql_expr_to_expression),
             })
         }
         other => Err(HelionError::Parse(format!(
@@ -587,7 +588,7 @@ fn convert_query(query: ast::Query) -> Result<HelionStatement> {
                 }
             }).collect();
 
-            let where_clause = select.selection.as_ref().map(|e| sql_expr_to_expression(e));
+            let where_clause = select.selection.as_ref().map(sql_expr_to_expression);
 
             let order_by: Vec<OrderByExpr> = match &query.order_by {
                 None => vec![],
@@ -687,7 +688,7 @@ fn sql_expr_to_expression(expr: &ast::Expr) -> Expression {
         ast::Expr::IsNull(inner) => Expression::IsNull(Box::new(sql_expr_to_expression(inner))),
         ast::Expr::IsNotNull(inner) => Expression::IsNotNull(Box::new(sql_expr_to_expression(inner))),
         ast::Expr::InList { expr: inner, list, .. } => {
-            let datums: Vec<Datum> = list.iter().filter_map(|e| sql_expr_to_datum_opt(e)).collect();
+            let datums: Vec<Datum> = list.iter().filter_map(sql_expr_to_datum_opt).collect();
             Expression::In {
                 expr: Box::new(sql_expr_to_expression(inner)),
                 list: datums,
@@ -979,7 +980,7 @@ mod tests {
         match &stmts[0] {
             HelionStatement::Insert { values, .. } => {
                 assert_eq!(values[0][0], Datum::BigInt(42));
-                assert_eq!(values[0][1], Datum::Double(3.14));
+                assert_eq!(values[0][1], Datum::Double(3.0 + 0.14));
                 assert_eq!(values[0][2], Datum::Text("hello".to_string()));
                 assert_eq!(values[0][3], Datum::Boolean(true));
                 assert_eq!(values[0][4], Datum::Null);

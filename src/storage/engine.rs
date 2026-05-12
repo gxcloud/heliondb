@@ -62,9 +62,7 @@ async fn replay_users_from_wal(data_dir: &Path) -> Result<UserStore> {
         if let Ok(record) = bincode::deserialize::<WalRecord>(data) {
             match record {
                 WalRecord::CreateUser { username, password_hash } => {
-                    if !store.user_exists(&username) {
-                        let _ = store.insert_user(User { username, password_hash });
-                    }
+                    let _ = store.insert_user(User { username, password_hash });
                 }
                 WalRecord::DropUser { username } => {
                     let _ = store.drop_user(&username);

@@ -23,6 +23,12 @@ impl MemoryEngine {
     }
 }
 
+impl Default for MemoryEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl StorageEngine for MemoryEngine {
     fn name(&self) -> &str {
