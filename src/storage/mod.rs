@@ -8,3 +8,4 @@ pub mod users;
 pub mod permissions;
 pub mod engine_trait;
 pub mod engines;
+pub mod catalog;
