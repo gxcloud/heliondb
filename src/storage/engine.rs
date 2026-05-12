@@ -7,6 +7,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::error::{HelionError, Result};
+use crate::executor::ops::{execute_as, QueryResult};
+use crate::sql::parser::parse;
+use crate::sql::planner::plan;
 use crate::storage::catalog::Catalog;
 use crate::storage::checkpoint::{checkpoint_loop, write_checkpoint};
 use crate::storage::engine_trait::normalize_engine_name;
@@ -180,6 +183,34 @@ impl DatabaseEngine {
         engine.spawn_checkpoint_loop();
 
         Ok(engine)
+    }
+
+    pub async fn explain(&self, sql: &str) -> Result<QueryResult> {
+        self.explain_with_mode(sql, false, None).await
+    }
+
+    pub async fn explain_analyze(&self, sql: &str) -> Result<QueryResult> {
+        self.explain_with_mode(sql, true, None).await
+    }
+
+    async fn explain_with_mode(
+        &self,
+        sql: &str,
+        analyze: bool,
+        current_user: Option<&str>,
+    ) -> Result<QueryResult> {
+        let explain_sql = if analyze {
+            format!("EXPLAIN ANALYZE {}", sql)
+        } else {
+            format!("EXPLAIN {}", sql)
+        };
+        let stmts = parse(&explain_sql)?;
+        let stmt = stmts
+            .first()
+            .ok_or_else(|| HelionError::Parse("Expected SQL statement to explain".into()))?;
+        let tables = self.get_tables().await;
+        let logical_plan = plan(stmt, &tables)?;
+        execute_as(self, &logical_plan, current_user).await
     }
 
     async fn restore_tables_to_engines(&self) -> Result<()> {

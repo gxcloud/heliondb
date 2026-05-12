@@ -63,6 +63,35 @@ pub async fn execute_as(
                 rows_affected: 0,
             })
         }
+        LogicalPlan::Explain {
+            analyze,
+            verbose,
+            statement,
+        } => {
+            let stmts = crate::sql::parser::parse(statement)?;
+            let inner_stmt = stmts
+                .first()
+                .ok_or_else(|| HelionError::Parse("Expected statement to explain".into()))?;
+            let tables = engine.get_tables().await;
+            let inner_plan = crate::sql::planner::plan(inner_stmt, &tables)?;
+
+            let mut rows = vec![vec![render_plan(&inner_plan, *verbose)]];
+            if *analyze {
+                let analyzed = Box::pin(execute_as(engine, &inner_plan, current_user)).await?;
+                rows.push(vec![format!(
+                    "rows={}, columns={}",
+                    analyzed.rows_affected,
+                    analyzed.columns.len()
+                )]);
+            }
+
+            Ok(QueryResult {
+                columns: vec!["QUERY PLAN".to_string()],
+                column_types: vec!["TEXT".to_string()],
+                rows,
+                rows_affected: 0,
+            })
+        }
 
         // ── DML ───────────────────────────────────────────────────────
         LogicalPlan::Insert { table_name, rows } => {
@@ -162,7 +191,7 @@ pub async fn execute_as(
                         let b_val = eval::evaluate(&order.expr, &b.1.values, table_columns).ok();
                         let cmp = match (&a_val, &b_val) {
                             (Some(av), Some(bv)) => {
-                                av.partial_cmp(bv).unwrap_or(std::cmp::Ordering::Equal)
+                                eval::compare_datums(av, bv).unwrap_or(std::cmp::Ordering::Equal)
                             }
                             _ => std::cmp::Ordering::Equal,
                         };
@@ -442,6 +471,14 @@ pub async fn execute(engine: &DatabaseEngine, plan: &LogicalPlan) -> Result<Quer
     execute_as(engine, plan, None).await
 }
 
+fn render_plan(plan: &LogicalPlan, verbose: bool) -> String {
+    if verbose {
+        format!("{:#?}", plan)
+    } else {
+        format!("{:?}", plan)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -494,6 +531,26 @@ mod tests {
             .unwrap();
         assert_eq!(result.rows.len(), 1);
         assert_eq!(result.rows[0][0], "1");
+    }
+
+    #[tokio::test]
+    async fn test_execute_explain() {
+        let (engine, _dir) = setup_engine().await;
+        execute(
+            &engine,
+            &plan(&parse("CREATE TABLE users (id INTEGER)").unwrap()[0], &[]).unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let stmts = parse("EXPLAIN SELECT * FROM users").unwrap();
+        let tables = engine.get_tables().await;
+        let result = execute(&engine, &plan(&stmts[0], &tables).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(result.columns, vec!["QUERY PLAN"]);
+        assert_eq!(result.rows.len(), 1);
+        assert!(result.rows[0][0].contains("Select"));
     }
 
     // ── User Management Tests ──────────────────────────────────────────

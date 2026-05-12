@@ -1,6 +1,8 @@
+use std::cmp::Ordering;
+
 use crate::error::{HelionError, Result};
 use crate::sql::parser::{BinaryOperator, Expression, UnaryOperator};
-use crate::storage::types::{ColumnMeta, Datum};
+use crate::storage::types::{uuidv7_bytes, ColumnMeta, Datum};
 
 /// Evaluate an expression against a row of data.
 pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Result<Datum> {
@@ -25,19 +27,19 @@ pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Res
                 BinaryOperator::Eq => Ok(Datum::Boolean(datum_eq(&left_val, &right_val))),
                 BinaryOperator::Ne => Ok(Datum::Boolean(!datum_eq(&left_val, &right_val))),
                 BinaryOperator::Lt => Ok(Datum::Boolean(
-                    datum_cmp(&left_val, &right_val) == Some(std::cmp::Ordering::Less),
+                    compare_datums(&left_val, &right_val) == Some(Ordering::Less),
                 )),
                 BinaryOperator::Le => Ok(Datum::Boolean(
-                    datum_cmp(&left_val, &right_val)
-                        .map(|o| o != std::cmp::Ordering::Greater)
+                    compare_datums(&left_val, &right_val)
+                        .map(|o| o != Ordering::Greater)
                         .unwrap_or(false),
                 )),
                 BinaryOperator::Gt => Ok(Datum::Boolean(
-                    datum_cmp(&left_val, &right_val) == Some(std::cmp::Ordering::Greater),
+                    compare_datums(&left_val, &right_val) == Some(Ordering::Greater),
                 )),
                 BinaryOperator::Ge => Ok(Datum::Boolean(
-                    datum_cmp(&left_val, &right_val)
-                        .map(|o| o != std::cmp::Ordering::Less)
+                    compare_datums(&left_val, &right_val)
+                        .map(|o| o != Ordering::Less)
                         .unwrap_or(false),
                 )),
                 BinaryOperator::And => {
@@ -86,10 +88,10 @@ pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Res
             if val.is_null() || low_val.is_null() || high_val.is_null() {
                 return Ok(Datum::Null);
             }
-            let ge_low = datum_cmp(&val, &low_val)
+            let ge_low = compare_datums(&val, &low_val)
                 .map(|o| o != std::cmp::Ordering::Less)
                 .unwrap_or(false);
-            let le_high = datum_cmp(&val, &high_val)
+            let le_high = compare_datums(&val, &high_val)
                 .map(|o| o != std::cmp::Ordering::Greater)
                 .unwrap_or(false);
             Ok(Datum::Boolean(ge_low && le_high))
@@ -115,24 +117,29 @@ pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Res
 }
 
 fn datum_eq(a: &Datum, b: &Datum) -> bool {
-    match (a, b) {
-        (Datum::Null, _) | (_, Datum::Null) => false,
-        _ => a == b,
-    }
+    compare_datums(a, b) == Some(Ordering::Equal)
 }
 
-fn datum_cmp(a: &Datum, b: &Datum) -> Option<std::cmp::Ordering> {
+pub fn compare_datums(a: &Datum, b: &Datum) -> Option<Ordering> {
     match (a, b) {
         (Datum::Null, _) | (_, Datum::Null) => None,
+        (Datum::SmallInt(ai), Datum::SmallInt(bi)) => Some(ai.cmp(bi)),
+        (Datum::UnsignedSmallInt(ai), Datum::UnsignedSmallInt(bi)) => Some(ai.cmp(bi)),
         (Datum::Integer(ai), Datum::Integer(bi)) => Some(ai.cmp(bi)),
-        (Datum::Integer(ai), Datum::BigInt(bi)) => Some((*ai as i64).cmp(bi)),
-        (Datum::BigInt(ai), Datum::Integer(bi)) => Some(ai.cmp(&(*bi as i64))),
+        (Datum::UnsignedInteger(ai), Datum::UnsignedInteger(bi)) => Some(ai.cmp(bi)),
         (Datum::BigInt(ai), Datum::BigInt(bi)) => Some(ai.cmp(bi)),
+        (Datum::UnsignedBigInt(ai), Datum::UnsignedBigInt(bi)) => Some(ai.cmp(bi)),
+        (Datum::Real(af), Datum::Real(bf)) => af.partial_cmp(bf),
         (Datum::Double(af), Datum::Double(bf)) => af.partial_cmp(bf),
+        (Datum::Real(af), Datum::Double(bf)) => (*af as f64).partial_cmp(bf),
+        (Datum::Double(af), Datum::Real(bf)) => af.partial_cmp(&(*bf as f64)),
         (Datum::Text(as_), Datum::Text(bs_)) => Some(as_.cmp(bs_)),
         (Datum::VarChar(as_), Datum::Text(bs_)) => Some(as_.cmp(bs_)),
         (Datum::Text(as_), Datum::VarChar(bs_)) => Some(as_.cmp(bs_)),
         (Datum::Boolean(ab), Datum::Boolean(bb)) => Some(ab.cmp(bb)),
+        (Datum::Uuid(a), Datum::Uuid(b)) => Some(a.as_bytes().cmp(b.as_bytes())),
+        (Datum::UuidV7(a), Datum::UuidV7(b)) => Some(a.cmp(b)),
+        (a, b) if is_numeric(a) && is_numeric(b) => compare_numeric(a, b),
         _ => None,
     }
 }
@@ -141,8 +148,14 @@ fn datum_to_bool(d: &Datum) -> bool {
     match d {
         Datum::Boolean(b) => *b,
         Datum::Null => false,
+        Datum::SmallInt(i) => *i != 0,
+        Datum::UnsignedSmallInt(i) => *i != 0,
         Datum::Integer(i) => *i != 0,
+        Datum::UnsignedInteger(i) => *i != 0,
         Datum::BigInt(i) => *i != 0,
+        Datum::UnsignedBigInt(i) => *i != 0,
+        Datum::Real(f) => *f != 0.0,
+        Datum::Double(f) => *f != 0.0,
         Datum::Text(s) => !s.is_empty(),
         _ => true,
     }
@@ -160,31 +173,38 @@ fn datum_arith<F>(a: &Datum, b: &Datum, op: F) -> Result<Datum>
 where
     F: Fn(f64, f64) -> f64,
 {
-    match (a, b) {
-        (Datum::Integer(ai), Datum::Integer(bi)) => {
-            Ok(Datum::Integer(op(*ai as f64, *bi as f64) as i32))
-        }
-        (Datum::BigInt(ai), Datum::BigInt(bi)) => {
-            Ok(Datum::BigInt(op(*ai as f64, *bi as f64) as i64))
-        }
-        (Datum::Double(af), Datum::Double(bf)) => Ok(Datum::Double(op(*af, *bf))),
-        (Datum::Integer(ai), Datum::Double(bf)) => Ok(Datum::Double(op(*ai as f64, *bf))),
-        (Datum::Double(af), Datum::Integer(bi)) => Ok(Datum::Double(op(*af, *bi as f64))),
-        (Datum::BigInt(ai), Datum::Integer(bi)) => {
-            Ok(Datum::BigInt(op(*ai as f64, *bi as f64) as i64))
-        }
-        (Datum::Integer(ai), Datum::BigInt(bi)) => {
-            Ok(Datum::BigInt(op(*ai as f64, *bi as f64) as i64))
-        }
-        _ => Err(HelionError::TypeMismatch {
+    if !is_numeric(a) || !is_numeric(b) {
+        return Err(HelionError::TypeMismatch {
             expected: a.data_type().to_string(),
             actual: b.data_type().to_string(),
-        }),
+        });
+    }
+
+    let result = op(numeric_to_f64(a), numeric_to_f64(b));
+    match (a, b) {
+        (Datum::SmallInt(_), Datum::SmallInt(_)) => Ok(Datum::SmallInt(result as i16)),
+        (Datum::UnsignedSmallInt(_), Datum::UnsignedSmallInt(_)) => {
+            Ok(Datum::UnsignedSmallInt(result as u16))
+        }
+        (Datum::Integer(_), Datum::Integer(_)) => Ok(Datum::Integer(result as i32)),
+        (Datum::UnsignedInteger(_), Datum::UnsignedInteger(_)) => {
+            Ok(Datum::UnsignedInteger(result as u32))
+        }
+        (Datum::BigInt(_), Datum::BigInt(_)) => Ok(Datum::BigInt(result as i64)),
+        (Datum::UnsignedBigInt(_), Datum::UnsignedBigInt(_)) => {
+            Ok(Datum::UnsignedBigInt(result as u64))
+        }
+        (Datum::Real(_), Datum::Real(_)) | (Datum::Double(_), Datum::Double(_)) => {
+            Ok(Datum::Double(result))
+        }
+        _ if result.is_sign_negative() => Ok(Datum::BigInt(result as i64)),
+        _ => Ok(Datum::UnsignedBigInt(result as u64)),
     }
 }
 
 fn negate_datum(d: &Datum) -> Result<Datum> {
     match d {
+        Datum::SmallInt(i) => Ok(Datum::SmallInt(-i)),
         Datum::Integer(i) => Ok(Datum::Integer(-i)),
         Datum::BigInt(i) => Ok(Datum::BigInt(-i)),
         Datum::Double(f) => Ok(Datum::Double(-f)),
@@ -207,12 +227,23 @@ fn evaluate_function(name: &str, args: &[Datum]) -> Result<Datum> {
                 ))
             }
         }
+        "uuidv7" | "uuid_v7" => {
+            if !args.is_empty() {
+                return Err(HelionError::Internal("UUIDV7 takes no arguments".into()));
+            }
+            Ok(Datum::UuidV7(uuidv7_bytes()))
+        }
         "sum" => {
             let total: f64 = args
                 .iter()
                 .filter_map(|a| match a {
+                    Datum::SmallInt(i) => Some(*i as f64),
+                    Datum::UnsignedSmallInt(i) => Some(*i as f64),
                     Datum::Integer(i) => Some(*i as f64),
+                    Datum::UnsignedInteger(i) => Some(*i as f64),
                     Datum::BigInt(i) => Some(*i as f64),
+                    Datum::UnsignedBigInt(i) => Some(*i as f64),
+                    Datum::Real(f) => Some(*f as f64),
                     Datum::Double(f) => Some(*f),
                     _ => None,
                 })
@@ -223,8 +254,13 @@ fn evaluate_function(name: &str, args: &[Datum]) -> Result<Datum> {
             let nums: Vec<f64> = args
                 .iter()
                 .filter_map(|a| match a {
+                    Datum::SmallInt(i) => Some(*i as f64),
+                    Datum::UnsignedSmallInt(i) => Some(*i as f64),
                     Datum::Integer(i) => Some(*i as f64),
+                    Datum::UnsignedInteger(i) => Some(*i as f64),
                     Datum::BigInt(i) => Some(*i as f64),
+                    Datum::UnsignedBigInt(i) => Some(*i as f64),
+                    Datum::Real(f) => Some(*f as f64),
                     Datum::Double(f) => Some(*f),
                     _ => None,
                 })
@@ -238,12 +274,12 @@ fn evaluate_function(name: &str, args: &[Datum]) -> Result<Datum> {
         "min" => args
             .iter()
             .cloned()
-            .min_by(|a, b| datum_cmp(a, b).unwrap_or(std::cmp::Ordering::Equal))
+            .min_by(|a, b| compare_datums(a, b).unwrap_or(std::cmp::Ordering::Equal))
             .ok_or_else(|| HelionError::Internal("MIN of empty set".into())),
         "max" => args
             .iter()
             .cloned()
-            .max_by(|a, b| datum_cmp(a, b).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| compare_datums(a, b).unwrap_or(std::cmp::Ordering::Equal))
             .ok_or_else(|| HelionError::Internal("MAX of empty set".into())),
         "lower" | "lcase" => {
             let s = args.first().map(datum_to_string).unwrap_or_default();
@@ -277,8 +313,13 @@ fn evaluate_function(name: &str, args: &[Datum]) -> Result<Datum> {
                 .first()
                 .ok_or_else(|| HelionError::Internal("ABS requires 1 argument".into()))?;
             match v {
+                Datum::SmallInt(i) => Ok(Datum::SmallInt(i.abs())),
                 Datum::Integer(i) => Ok(Datum::Integer(i.abs())),
                 Datum::BigInt(i) => Ok(Datum::BigInt(i.abs())),
+                Datum::UnsignedSmallInt(i) => Ok(Datum::UnsignedSmallInt(*i)),
+                Datum::UnsignedInteger(i) => Ok(Datum::UnsignedInteger(*i)),
+                Datum::UnsignedBigInt(i) => Ok(Datum::UnsignedBigInt(*i)),
+                Datum::Real(f) => Ok(Datum::Double(f.abs() as f64)),
                 Datum::Double(f) => Ok(Datum::Double(f.abs())),
                 _ => Err(HelionError::TypeMismatch {
                     expected: "numeric".to_string(),
@@ -306,6 +347,91 @@ fn evaluate_function(name: &str, args: &[Datum]) -> Result<Datum> {
             }
         }
         _ => Err(HelionError::Internal(format!("Unknown function: {}", name))),
+    }
+}
+
+fn is_numeric(d: &Datum) -> bool {
+    matches!(
+        d,
+        Datum::SmallInt(_)
+            | Datum::UnsignedSmallInt(_)
+            | Datum::Integer(_)
+            | Datum::UnsignedInteger(_)
+            | Datum::BigInt(_)
+            | Datum::UnsignedBigInt(_)
+            | Datum::Real(_)
+            | Datum::Double(_)
+    )
+}
+
+fn numeric_to_f64(d: &Datum) -> f64 {
+    match d {
+        Datum::SmallInt(i) => *i as f64,
+        Datum::UnsignedSmallInt(i) => *i as f64,
+        Datum::Integer(i) => *i as f64,
+        Datum::UnsignedInteger(i) => *i as f64,
+        Datum::BigInt(i) => *i as f64,
+        Datum::UnsignedBigInt(i) => *i as f64,
+        Datum::Real(f) => *f as f64,
+        Datum::Double(f) => *f,
+        _ => 0.0,
+    }
+}
+
+fn compare_numeric(a: &Datum, b: &Datum) -> Option<Ordering> {
+    let left = numeric_rank(a)?;
+    let right = numeric_rank(b)?;
+    match (left, right) {
+        (NumericRank::Float(a), NumericRank::Float(b)) => a.partial_cmp(&b),
+        (NumericRank::Float(a), other) => a.partial_cmp(&other.as_f64()),
+        (other, NumericRank::Float(b)) => other.as_f64().partial_cmp(&b),
+        (NumericRank::Signed(a), NumericRank::Signed(b)) => Some(a.cmp(&b)),
+        (NumericRank::Unsigned(a), NumericRank::Unsigned(b)) => Some(a.cmp(&b)),
+        (NumericRank::Signed(a), NumericRank::Unsigned(b)) => {
+            if a < 0 {
+                Some(Ordering::Less)
+            } else {
+                Some((a as u128).cmp(&b))
+            }
+        }
+        (NumericRank::Unsigned(a), NumericRank::Signed(b)) => {
+            if b < 0 {
+                Some(Ordering::Greater)
+            } else {
+                Some(a.cmp(&(b as u128)))
+            }
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+enum NumericRank {
+    Signed(i128),
+    Unsigned(u128),
+    Float(f64),
+}
+
+impl NumericRank {
+    fn as_f64(self) -> f64 {
+        match self {
+            NumericRank::Signed(v) => v as f64,
+            NumericRank::Unsigned(v) => v as f64,
+            NumericRank::Float(v) => v,
+        }
+    }
+}
+
+fn numeric_rank(d: &Datum) -> Option<NumericRank> {
+    match d {
+        Datum::SmallInt(v) => Some(NumericRank::Signed(*v as i128)),
+        Datum::Integer(v) => Some(NumericRank::Signed(*v as i128)),
+        Datum::BigInt(v) => Some(NumericRank::Signed(*v as i128)),
+        Datum::UnsignedSmallInt(v) => Some(NumericRank::Unsigned(*v as u128)),
+        Datum::UnsignedInteger(v) => Some(NumericRank::Unsigned(*v as u128)),
+        Datum::UnsignedBigInt(v) => Some(NumericRank::Unsigned(*v as u128)),
+        Datum::Real(v) => Some(NumericRank::Float(*v as f64)),
+        Datum::Double(v) => Some(NumericRank::Float(*v)),
+        _ => None,
     }
 }
 
@@ -495,6 +621,24 @@ mod tests {
     fn test_function_count() {
         let result = evaluate_function("count", &[Datum::Integer(1), Datum::Integer(2)]).unwrap();
         assert_eq!(result, Datum::BigInt(2));
+    }
+
+    #[test]
+    fn test_function_uuidv7() {
+        let result = evaluate_function("uuidv7", &[]).unwrap();
+        assert!(matches!(result, Datum::UuidV7(_)));
+    }
+
+    #[test]
+    fn test_compare_unsigned() {
+        assert_eq!(
+            compare_datums(&Datum::UnsignedInteger(2), &Datum::Integer(3)),
+            Some(std::cmp::Ordering::Less)
+        );
+        assert_eq!(
+            compare_datums(&Datum::UnsignedBigInt(5), &Datum::UnsignedBigInt(5)),
+            Some(std::cmp::Ordering::Equal)
+        );
     }
 
     #[test]

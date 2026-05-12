@@ -591,7 +591,7 @@ async fn test_wal_recovery_with_update() {
         assert_eq!(visible.len(), 1, "Should have 1 visible row");
         assert_eq!(
             visible[0].1.get(1),
-            Some(&Datum::BigInt(999)),
+            Some(&Datum::Integer(999)),
             "Updated value (index 1) should be 999, got {:?}",
             visible[0].1.get(1)
         );

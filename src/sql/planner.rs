@@ -2,7 +2,7 @@ use crate::error::{HelionError, Result};
 use crate::sql::parser::*;
 use crate::storage::permissions::Permission;
 use crate::storage::table::Table;
-use crate::storage::types::{ColumnMeta, Datum, Row};
+use crate::storage::types::{coerce_datum, ColumnMeta, Datum, Row};
 
 /// A logical plan node representing a database operation.
 #[derive(Debug, Clone)]
@@ -11,6 +11,11 @@ pub enum LogicalPlan {
         name: String,
         columns: Vec<ColumnMeta>,
         engine: Option<String>,
+    },
+    Explain {
+        analyze: bool,
+        verbose: bool,
+        statement: String,
     },
     DropTable {
         name: String,
@@ -88,6 +93,15 @@ pub fn plan(statement: &HelionStatement, tables: &[Table]) -> Result<LogicalPlan
             name: name.clone(),
             if_exists: *if_exists,
         }),
+        HelionStatement::Explain {
+            analyze,
+            verbose,
+            statement,
+        } => Ok(LogicalPlan::Explain {
+            analyze: *analyze,
+            verbose: *verbose,
+            statement: statement.clone(),
+        }),
         HelionStatement::AlterTableEngine { name, engine } => Ok(LogicalPlan::AlterTableEngine {
             name: name.clone(),
             engine: engine.clone(),
@@ -117,7 +131,8 @@ pub fn plan(statement: &HelionStatement, tables: &[Table]) -> Result<LogicalPlan
                 let mut full_row = vec![Datum::Null; table.columns.len()];
                 for (i, val) in row_values.iter().enumerate() {
                     if i < col_indices.len() {
-                        full_row[col_indices[i]] = val.clone();
+                        let target_type = &table.columns[col_indices[i]].data_type;
+                        full_row[col_indices[i]] = coerce_datum(val, target_type)?;
                     }
                 }
                 let row = Row::new(full_row);
@@ -166,7 +181,8 @@ pub fn plan(statement: &HelionStatement, tables: &[Table]) -> Result<LogicalPlan
                     HelionError::ColumnNotFound(format!("{}.{}", table_name, col_name))
                 })?;
                 set_indices.push(idx);
-                set_values.push(val.clone());
+                let coerced = coerce_datum(val, &table.columns[idx].data_type)?;
+                set_values.push(coerced);
             }
             Ok(LogicalPlan::Update {
                 table_name: table_name.clone(),
@@ -366,7 +382,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(set_indices, vec![2]); // age is at index 2
-                assert_eq!(set_values[0], Datum::BigInt(31));
+                assert_eq!(set_values[0], Datum::Integer(31));
             }
             _ => panic!("Expected Update"),
         }

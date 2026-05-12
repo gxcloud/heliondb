@@ -58,9 +58,10 @@
 //! - **Expressions**: Comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`), logical (`AND`, `OR`, `NOT`),
 //!   arithmetic (`+`, `-`, `*`, `/`), `IS NULL`, `IS NOT NULL`, `IN`, `BETWEEN`, `LIKE`
 //! - **Functions**: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `LOWER`, `UPPER`, `LENGTH`,
-//!   `COALESCE`, `IFNULL`, `ABS`, `ROUND`
+//!   `COALESCE`, `IFNULL`, `ABS`, `ROUND`, `UUIDV7`
 //! - **Data Types**: `INTEGER`, `BIGINT`, `SMALLINT`, `REAL`, `DOUBLE`, `VARCHAR`, `CHAR`,
-//!   `TEXT`, `BOOLEAN`, `DATE`, `TIME`, `TIMESTAMP`, `UUID`
+//!   `TEXT`, `BOOLEAN`, `DATE`, `TIME`, `TIMESTAMP`, `UUID`, `UUIDV7`, `U_SMALLINT`,
+//!   `U_INTEGER`, `U_BIGINT`
 
 pub mod error;
 pub mod executor;

@@ -12,6 +12,11 @@ pub enum HelionStatement {
         columns: Vec<ColumnMeta>,
         engine: Option<String>,
     },
+    Explain {
+        analyze: bool,
+        verbose: bool,
+        statement: String,
+    },
     DropTable {
         name: String,
         if_exists: bool,
@@ -193,6 +198,10 @@ fn parse_custom(sql: &str) -> Result<Vec<HelionStatement>> {
 
     if upper.starts_with("ALTER TABLE ") {
         return parse_alter_table_engine(sql);
+    }
+
+    if upper.starts_with("EXPLAIN ") || upper.starts_with("EXPLAIN ANALYZE ") {
+        return parse_explain(sql);
     }
 
     if upper.starts_with("CREATE USER ") || upper.starts_with("CREATE USER IF NOT EXISTS ") {
@@ -435,6 +444,16 @@ fn convert_statement(stmt: SqlStatement) -> Result<HelionStatement> {
                 engine: None,
             })
         }
+        SqlStatement::Explain {
+            analyze,
+            verbose,
+            statement,
+            ..
+        } => Ok(HelionStatement::Explain {
+            analyze,
+            verbose,
+            statement: statement.to_string(),
+        }),
         SqlStatement::Drop {
             object_type,
             if_exists,
@@ -536,6 +555,34 @@ fn convert_statement(stmt: SqlStatement) -> Result<HelionStatement> {
             other
         ))),
     }
+}
+
+fn parse_explain(sql: &str) -> Result<Vec<HelionStatement>> {
+    let dialect = PostgreSqlDialect {};
+    let statements =
+        SqlParser::parse_sql(&dialect, sql).map_err(|e| HelionError::Parse(e.to_string()))?;
+    let mut out = Vec::new();
+    for stmt in statements {
+        match stmt {
+            SqlStatement::Explain {
+                analyze,
+                verbose,
+                statement,
+                ..
+            } => out.push(HelionStatement::Explain {
+                analyze,
+                verbose,
+                statement: statement.to_string(),
+            }),
+            other => {
+                return Err(HelionError::Parse(format!(
+                    "Unsupported EXPLAIN statement: {:?}",
+                    other
+                )));
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn looks_like_create_table_with_engine(sql: &str) -> bool {
@@ -825,6 +872,16 @@ fn sql_expr_to_expression(expr: &ast::Expr) -> Expression {
 fn sql_expr_to_datum(expr: &ast::Expr) -> Result<Datum> {
     match expr {
         ast::Expr::Value(vws) => Ok(sql_value_to_datum(&vws.value)),
+        ast::Expr::Function(func) => {
+            let name = func.name.to_string().to_uppercase();
+            match name.as_str() {
+                "UUIDV7" => Ok(Datum::UuidV7(crate::storage::types::uuidv7_bytes())),
+                _ => Err(HelionError::Parse(format!(
+                    "Unsupported function in literal context: {}",
+                    func.name
+                ))),
+            }
+        }
         ast::Expr::UnaryOp {
             op: ast::UnaryOperator::Minus,
             expr: inner,
@@ -996,6 +1053,24 @@ mod tests {
                 assert_eq!(columns[0], SelectColumn::Wildcard);
             }
             _ => panic!("Expected Select"),
+        }
+    }
+
+    #[test]
+    fn test_parse_explain() {
+        let sql = "EXPLAIN ANALYZE SELECT * FROM users";
+        let stmts = parse(sql).unwrap();
+        match &stmts[0] {
+            HelionStatement::Explain {
+                analyze,
+                verbose,
+                statement,
+            } => {
+                assert!(*analyze);
+                assert!(!*verbose);
+                assert!(statement.to_uppercase().contains("SELECT * FROM USERS"));
+            }
+            _ => panic!("Expected Explain"),
         }
     }
 
