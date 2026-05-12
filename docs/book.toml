@@ -1,0 +1,11 @@
+[book]
+title = "HelionDB"
+authors = ["Alexander Gauss"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/gxcloud/heliondb"
+edit-url-template = "https://github.com/gxcloud/heliondb/edit/main/{path}"
