@@ -26,17 +26,17 @@ pub enum LogicalPlan {
     },
     Select {
         table_name: String,
-        columns: Vec<usize>,              // column indices for projection
-        wildcard: bool,                    // SELECT *
+        columns: Vec<usize>, // column indices for projection
+        wildcard: bool,      // SELECT *
         where_clause: Option<Expression>,
         order_by: Vec<OrderByExpr>,
         limit: Option<u64>,
         offset: Option<u64>,
-        table_columns: Vec<ColumnMeta>,   // resolved column metadata
+        table_columns: Vec<ColumnMeta>, // resolved column metadata
     },
     Update {
         table_name: String,
-        set_indices: Vec<usize>,          // column indices to update
+        set_indices: Vec<usize>, // column indices to update
         set_values: Vec<Datum>,
         where_clause: Option<Expression>,
         table_columns: Vec<ColumnMeta>,
@@ -73,41 +73,43 @@ pub enum LogicalPlan {
 }
 
 /// Plan a parsed statement against the available table schemas.
-pub fn plan(
-    statement: &HelionStatement,
-    tables: &[Table],
-) -> Result<LogicalPlan> {
+pub fn plan(statement: &HelionStatement, tables: &[Table]) -> Result<LogicalPlan> {
     match statement {
-        HelionStatement::CreateTable { name, columns, engine } => {
-            Ok(LogicalPlan::CreateTable {
-                name: name.clone(),
-                columns: columns.clone(),
-                engine: engine.clone(),
-            })
-        }
-        HelionStatement::DropTable { name, if_exists } => {
-            Ok(LogicalPlan::DropTable {
-                name: name.clone(),
-                if_exists: *if_exists,
-            })
-        }
-        HelionStatement::AlterTableEngine { name, engine } => {
-            Ok(LogicalPlan::AlterTableEngine {
-                name: name.clone(),
-                engine: engine.clone(),
-            })
-        }
-        HelionStatement::Insert { table_name, columns, values } => {
+        HelionStatement::CreateTable {
+            name,
+            columns,
+            engine,
+        } => Ok(LogicalPlan::CreateTable {
+            name: name.clone(),
+            columns: columns.clone(),
+            engine: engine.clone(),
+        }),
+        HelionStatement::DropTable { name, if_exists } => Ok(LogicalPlan::DropTable {
+            name: name.clone(),
+            if_exists: *if_exists,
+        }),
+        HelionStatement::AlterTableEngine { name, engine } => Ok(LogicalPlan::AlterTableEngine {
+            name: name.clone(),
+            engine: engine.clone(),
+        }),
+        HelionStatement::Insert {
+            table_name,
+            columns,
+            values,
+        } => {
             let table = find_table(tables, table_name)?;
             let col_indices = if columns.is_empty() {
                 // Use all columns in order
                 (0..table.columns.len()).collect()
             } else {
-                columns.iter().map(|c| {
-                    table.column_index(c).ok_or_else(|| {
-                        HelionError::ColumnNotFound(format!("{}.{}", table_name, c))
+                columns
+                    .iter()
+                    .map(|c| {
+                        table.column_index(c).ok_or_else(|| {
+                            HelionError::ColumnNotFound(format!("{}.{}", table_name, c))
+                        })
                     })
-                }).collect::<Result<Vec<_>>>()?
+                    .collect::<Result<Vec<_>>>()?
             };
 
             let mut rows = Vec::new();
@@ -128,7 +130,14 @@ pub fn plan(
                 rows,
             })
         }
-        HelionStatement::Select { table_name, columns, where_clause, order_by, limit, offset } => {
+        HelionStatement::Select {
+            table_name,
+            columns,
+            where_clause,
+            order_by,
+            limit,
+            offset,
+        } => {
             let table = find_table(tables, table_name)?;
 
             let (col_indices, wildcard) = resolve_columns(columns, table)?;
@@ -144,7 +153,11 @@ pub fn plan(
                 table_columns: table.columns.clone(),
             })
         }
-        HelionStatement::Update { table_name, assignments, where_clause } => {
+        HelionStatement::Update {
+            table_name,
+            assignments,
+            where_clause,
+        } => {
             let table = find_table(tables, table_name)?;
             let mut set_indices = Vec::new();
             let mut set_values = Vec::new();
@@ -163,7 +176,10 @@ pub fn plan(
                 table_columns: table.columns.clone(),
             })
         }
-        HelionStatement::Delete { table_name, where_clause } => {
+        HelionStatement::Delete {
+            table_name,
+            where_clause,
+        } => {
             let table = find_table(tables, table_name)?;
             Ok(LogicalPlan::Delete {
                 table_name: table_name.clone(),
@@ -171,25 +187,27 @@ pub fn plan(
                 table_columns: table.columns.clone(),
             })
         }
-        HelionStatement::CreateUser { username, password } => {
-            Ok(LogicalPlan::CreateUser {
-                username: username.clone(),
-                password: password.clone(),
-            })
-        }
-        HelionStatement::DropUser { username, if_exists } => {
-            Ok(LogicalPlan::DropUser {
-                username: username.clone(),
-                if_exists: *if_exists,
-            })
-        }
-        HelionStatement::AlterUser { username, password } => {
-            Ok(LogicalPlan::AlterUser {
-                username: username.clone(),
-                password: password.clone(),
-            })
-        }
-        HelionStatement::Grant { username, table, columns, permission_type } => {
+        HelionStatement::CreateUser { username, password } => Ok(LogicalPlan::CreateUser {
+            username: username.clone(),
+            password: password.clone(),
+        }),
+        HelionStatement::DropUser {
+            username,
+            if_exists,
+        } => Ok(LogicalPlan::DropUser {
+            username: username.clone(),
+            if_exists: *if_exists,
+        }),
+        HelionStatement::AlterUser { username, password } => Ok(LogicalPlan::AlterUser {
+            username: username.clone(),
+            password: password.clone(),
+        }),
+        HelionStatement::Grant {
+            username,
+            table,
+            columns,
+            permission_type,
+        } => {
             let permission = match permission_type {
                 GrantPermissionType::Select => Permission::Select(columns.clone()),
                 GrantPermissionType::Insert => Permission::Insert(columns.clone()),
@@ -204,7 +222,12 @@ pub fn plan(
                 permission,
             })
         }
-        HelionStatement::Revoke { username, table, columns, permission_type } => {
+        HelionStatement::Revoke {
+            username,
+            table,
+            columns,
+            permission_type,
+        } => {
             let permission = match permission_type {
                 GrantPermissionType::Select => Permission::Select(columns.clone()),
                 GrantPermissionType::Insert => Permission::Insert(columns.clone()),
@@ -223,14 +246,13 @@ pub fn plan(
 }
 
 fn find_table<'a>(tables: &'a [Table], name: &str) -> Result<&'a Table> {
-    tables.iter().find(|t| t.name == name)
+    tables
+        .iter()
+        .find(|t| t.name == name)
         .ok_or_else(|| HelionError::TableNotFound(name.to_string()))
 }
 
-fn resolve_columns(
-    columns: &[SelectColumn],
-    table: &Table,
-) -> Result<(Vec<usize>, bool)> {
+fn resolve_columns(columns: &[SelectColumn], table: &Table) -> Result<(Vec<usize>, bool)> {
     let mut indices = Vec::new();
     let mut wildcard = false;
 
@@ -308,7 +330,9 @@ mod tests {
         let stmts = parse("SELECT id, name FROM users WHERE age > 18").unwrap();
         let plan = plan(&stmts[0], &make_tables()).unwrap();
         match plan {
-            LogicalPlan::Select { columns, wildcard, .. } => {
+            LogicalPlan::Select {
+                columns, wildcard, ..
+            } => {
                 assert!(!wildcard);
                 assert_eq!(columns.len(), 2);
             }
@@ -321,7 +345,9 @@ mod tests {
         let stmts = parse("SELECT * FROM users").unwrap();
         let plan = plan(&stmts[0], &make_tables()).unwrap();
         match plan {
-            LogicalPlan::Select { wildcard, columns, .. } => {
+            LogicalPlan::Select {
+                wildcard, columns, ..
+            } => {
                 assert!(wildcard);
                 assert_eq!(columns.len(), 3); // all columns
             }
@@ -334,7 +360,11 @@ mod tests {
         let stmts = parse("UPDATE users SET age = 31 WHERE id = 1").unwrap();
         let plan = plan(&stmts[0], &make_tables()).unwrap();
         match plan {
-            LogicalPlan::Update { set_indices, set_values, .. } => {
+            LogicalPlan::Update {
+                set_indices,
+                set_values,
+                ..
+            } => {
                 assert_eq!(set_indices, vec![2]); // age is at index 2
                 assert_eq!(set_values[0], Datum::BigInt(31));
             }
@@ -371,7 +401,12 @@ mod tests {
         let stmts = parse("GRANT SELECT ON users TO alice").unwrap();
         let plan = plan(&stmts[0], &make_tables()).unwrap();
         match plan {
-            LogicalPlan::Grant { username, table, permission, .. } => {
+            LogicalPlan::Grant {
+                username,
+                table,
+                permission,
+                ..
+            } => {
                 assert_eq!(username, "alice");
                 assert_eq!(table, "users");
                 assert_eq!(permission, Permission::Select(vec![]));

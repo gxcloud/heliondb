@@ -1,7 +1,5 @@
 use crate::error::{HelionError, Result};
-use crate::sql::parser::{
-    BinaryOperator, Expression, UnaryOperator,
-};
+use crate::sql::parser::{BinaryOperator, Expression, UnaryOperator};
 use crate::storage::types::{ColumnMeta, Datum};
 
 /// Evaluate an expression against a row of data.
@@ -9,7 +7,9 @@ pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Res
     match expr {
         Expression::Literal(d) => Ok(d.clone()),
         Expression::Column(name) => {
-            let idx = columns.iter().position(|c| c.name.eq_ignore_ascii_case(name))
+            let idx = columns
+                .iter()
+                .position(|c| c.name.eq_ignore_ascii_case(name))
                 .ok_or_else(|| HelionError::ColumnNotFound(name.clone()))?;
             Ok(row.get(idx).cloned().unwrap_or(Datum::Null))
         }
@@ -24,13 +24,21 @@ pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Res
             match op {
                 BinaryOperator::Eq => Ok(Datum::Boolean(datum_eq(&left_val, &right_val))),
                 BinaryOperator::Ne => Ok(Datum::Boolean(!datum_eq(&left_val, &right_val))),
-                BinaryOperator::Lt => Ok(Datum::Boolean(datum_cmp(&left_val, &right_val) == Some(std::cmp::Ordering::Less))),
-                BinaryOperator::Le => Ok(Datum::Boolean(
-                    datum_cmp(&left_val, &right_val).map(|o| o != std::cmp::Ordering::Greater).unwrap_or(false)
+                BinaryOperator::Lt => Ok(Datum::Boolean(
+                    datum_cmp(&left_val, &right_val) == Some(std::cmp::Ordering::Less),
                 )),
-                BinaryOperator::Gt => Ok(Datum::Boolean(datum_cmp(&left_val, &right_val) == Some(std::cmp::Ordering::Greater))),
+                BinaryOperator::Le => Ok(Datum::Boolean(
+                    datum_cmp(&left_val, &right_val)
+                        .map(|o| o != std::cmp::Ordering::Greater)
+                        .unwrap_or(false),
+                )),
+                BinaryOperator::Gt => Ok(Datum::Boolean(
+                    datum_cmp(&left_val, &right_val) == Some(std::cmp::Ordering::Greater),
+                )),
                 BinaryOperator::Ge => Ok(Datum::Boolean(
-                    datum_cmp(&left_val, &right_val).map(|o| o != std::cmp::Ordering::Less).unwrap_or(false)
+                    datum_cmp(&left_val, &right_val)
+                        .map(|o| o != std::cmp::Ordering::Less)
+                        .unwrap_or(false),
                 )),
                 BinaryOperator::And => {
                     let lb = datum_to_bool(&left_val);
@@ -67,18 +75,29 @@ pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Res
             let val = evaluate(inner, row, columns)?;
             Ok(Datum::Boolean(list.iter().any(|d| datum_eq(d, &val))))
         }
-        Expression::Between { expr: inner, low, high } => {
+        Expression::Between {
+            expr: inner,
+            low,
+            high,
+        } => {
             let val = evaluate(inner, row, columns)?;
             let low_val = evaluate(low, row, columns)?;
             let high_val = evaluate(high, row, columns)?;
             if val.is_null() || low_val.is_null() || high_val.is_null() {
                 return Ok(Datum::Null);
             }
-            let ge_low = datum_cmp(&val, &low_val).map(|o| o != std::cmp::Ordering::Less).unwrap_or(false);
-            let le_high = datum_cmp(&val, &high_val).map(|o| o != std::cmp::Ordering::Greater).unwrap_or(false);
+            let ge_low = datum_cmp(&val, &low_val)
+                .map(|o| o != std::cmp::Ordering::Less)
+                .unwrap_or(false);
+            let le_high = datum_cmp(&val, &high_val)
+                .map(|o| o != std::cmp::Ordering::Greater)
+                .unwrap_or(false);
             Ok(Datum::Boolean(ge_low && le_high))
         }
-        Expression::Like { expr: inner, pattern } => {
+        Expression::Like {
+            expr: inner,
+            pattern,
+        } => {
             let val = evaluate(inner, row, columns)?;
             let s = datum_to_string(&val);
             // Simple LIKE: % matches any sequence, _ matches single char
@@ -87,9 +106,8 @@ pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Res
             Ok(Datum::Boolean(re))
         }
         Expression::Function { name, args } => {
-            let evaluated_args: Result<Vec<Datum>> = args.iter()
-                .map(|a| evaluate(a, row, columns))
-                .collect();
+            let evaluated_args: Result<Vec<Datum>> =
+                args.iter().map(|a| evaluate(a, row, columns)).collect();
             let args = evaluated_args?;
             evaluate_function(name, &args)
         }
@@ -139,15 +157,25 @@ fn datum_to_string(d: &Datum) -> String {
 }
 
 fn datum_arith<F>(a: &Datum, b: &Datum, op: F) -> Result<Datum>
-where F: Fn(f64, f64) -> f64 {
+where
+    F: Fn(f64, f64) -> f64,
+{
     match (a, b) {
-        (Datum::Integer(ai), Datum::Integer(bi)) => Ok(Datum::Integer(op(*ai as f64, *bi as f64) as i32)),
-        (Datum::BigInt(ai), Datum::BigInt(bi)) => Ok(Datum::BigInt(op(*ai as f64, *bi as f64) as i64)),
+        (Datum::Integer(ai), Datum::Integer(bi)) => {
+            Ok(Datum::Integer(op(*ai as f64, *bi as f64) as i32))
+        }
+        (Datum::BigInt(ai), Datum::BigInt(bi)) => {
+            Ok(Datum::BigInt(op(*ai as f64, *bi as f64) as i64))
+        }
         (Datum::Double(af), Datum::Double(bf)) => Ok(Datum::Double(op(*af, *bf))),
         (Datum::Integer(ai), Datum::Double(bf)) => Ok(Datum::Double(op(*ai as f64, *bf))),
         (Datum::Double(af), Datum::Integer(bi)) => Ok(Datum::Double(op(*af, *bi as f64))),
-        (Datum::BigInt(ai), Datum::Integer(bi)) => Ok(Datum::BigInt(op(*ai as f64, *bi as f64) as i64)),
-        (Datum::Integer(ai), Datum::BigInt(bi)) => Ok(Datum::BigInt(op(*ai as f64, *bi as f64) as i64)),
+        (Datum::BigInt(ai), Datum::Integer(bi)) => {
+            Ok(Datum::BigInt(op(*ai as f64, *bi as f64) as i64))
+        }
+        (Datum::Integer(ai), Datum::BigInt(bi)) => {
+            Ok(Datum::BigInt(op(*ai as f64, *bi as f64) as i64))
+        }
         _ => Err(HelionError::TypeMismatch {
             expected: a.data_type().to_string(),
             actual: b.data_type().to_string(),
@@ -174,39 +202,49 @@ fn evaluate_function(name: &str, args: &[Datum]) -> Result<Datum> {
             if args.is_empty() {
                 Ok(Datum::BigInt(0))
             } else {
-                Ok(Datum::BigInt(args.iter().filter(|a| !a.is_null()).count() as i64))
+                Ok(Datum::BigInt(
+                    args.iter().filter(|a| !a.is_null()).count() as i64
+                ))
             }
         }
         "sum" => {
-            let total: f64 = args.iter().filter_map(|a| match a {
-                Datum::Integer(i) => Some(*i as f64),
-                Datum::BigInt(i) => Some(*i as f64),
-                Datum::Double(f) => Some(*f),
-                _ => None,
-            }).sum();
+            let total: f64 = args
+                .iter()
+                .filter_map(|a| match a {
+                    Datum::Integer(i) => Some(*i as f64),
+                    Datum::BigInt(i) => Some(*i as f64),
+                    Datum::Double(f) => Some(*f),
+                    _ => None,
+                })
+                .sum();
             Ok(Datum::Double(total))
         }
         "avg" => {
-            let nums: Vec<f64> = args.iter().filter_map(|a| match a {
-                Datum::Integer(i) => Some(*i as f64),
-                Datum::BigInt(i) => Some(*i as f64),
-                Datum::Double(f) => Some(*f),
-                _ => None,
-            }).collect();
+            let nums: Vec<f64> = args
+                .iter()
+                .filter_map(|a| match a {
+                    Datum::Integer(i) => Some(*i as f64),
+                    Datum::BigInt(i) => Some(*i as f64),
+                    Datum::Double(f) => Some(*f),
+                    _ => None,
+                })
+                .collect();
             if nums.is_empty() {
                 Ok(Datum::Null)
             } else {
                 Ok(Datum::Double(nums.iter().sum::<f64>() / nums.len() as f64))
             }
         }
-        "min" => {
-            args.iter().cloned().min_by(|a, b| datum_cmp(a, b).unwrap_or(std::cmp::Ordering::Equal))
-                .ok_or_else(|| HelionError::Internal("MIN of empty set".into()))
-        }
-        "max" => {
-            args.iter().cloned().max_by(|a, b| datum_cmp(a, b).unwrap_or(std::cmp::Ordering::Equal))
-                .ok_or_else(|| HelionError::Internal("MAX of empty set".into()))
-        }
+        "min" => args
+            .iter()
+            .cloned()
+            .min_by(|a, b| datum_cmp(a, b).unwrap_or(std::cmp::Ordering::Equal))
+            .ok_or_else(|| HelionError::Internal("MIN of empty set".into())),
+        "max" => args
+            .iter()
+            .cloned()
+            .max_by(|a, b| datum_cmp(a, b).unwrap_or(std::cmp::Ordering::Equal))
+            .ok_or_else(|| HelionError::Internal("MAX of empty set".into())),
         "lower" | "lcase" => {
             let s = args.first().map(datum_to_string).unwrap_or_default();
             Ok(Datum::Text(s.to_lowercase()))
@@ -219,15 +257,25 @@ fn evaluate_function(name: &str, args: &[Datum]) -> Result<Datum> {
             let s = args.first().map(datum_to_string).unwrap_or_default();
             Ok(Datum::Integer(s.len() as i32))
         }
-        "coalesce" => {
-            Ok(args.iter().find(|a| !a.is_null()).cloned().unwrap_or(Datum::Null))
-        }
-        "ifnull" => {
-            Ok(args.first().map(|a| if a.is_null() { args.get(1).cloned().unwrap_or(Datum::Null) } else { a.clone() })
-                .unwrap_or(Datum::Null))
-        }
+        "coalesce" => Ok(args
+            .iter()
+            .find(|a| !a.is_null())
+            .cloned()
+            .unwrap_or(Datum::Null)),
+        "ifnull" => Ok(args
+            .first()
+            .map(|a| {
+                if a.is_null() {
+                    args.get(1).cloned().unwrap_or(Datum::Null)
+                } else {
+                    a.clone()
+                }
+            })
+            .unwrap_or(Datum::Null)),
         "abs" => {
-            let v = args.first().ok_or_else(|| HelionError::Internal("ABS requires 1 argument".into()))?;
+            let v = args
+                .first()
+                .ok_or_else(|| HelionError::Internal("ABS requires 1 argument".into()))?;
             match v {
                 Datum::Integer(i) => Ok(Datum::Integer(i.abs())),
                 Datum::BigInt(i) => Ok(Datum::BigInt(i.abs())),
@@ -239,11 +287,16 @@ fn evaluate_function(name: &str, args: &[Datum]) -> Result<Datum> {
             }
         }
         "round" => {
-            let v = args.first().ok_or_else(|| HelionError::Internal("ROUND requires 1 argument".into()))?;
-            let decimals = args.get(1).map(|d| match d {
-                Datum::Integer(i) => *i,
-                _ => 0,
-            }).unwrap_or(0);
+            let v = args
+                .first()
+                .ok_or_else(|| HelionError::Internal("ROUND requires 1 argument".into()))?;
+            let decimals = args
+                .get(1)
+                .map(|d| match d {
+                    Datum::Integer(i) => *i,
+                    _ => 0,
+                })
+                .unwrap_or(0);
             match v {
                 Datum::Double(f) => {
                     let multiplier = 10f64.powi(decimals);
@@ -286,8 +339,8 @@ fn simple_match(pat: &[char], s: &[char], pi: usize, si: usize) -> bool {
     }
     if si >= s.len() {
         // Allow trailing .* to match empty
-        return pi + 1 < pat.len() 
-            && pat[pi] == '.' 
+        return pi + 1 < pat.len()
+            && pat[pi] == '.'
             && pat[pi + 1] == '*'
             && simple_match(pat, s, pi + 2, si);
     }
@@ -301,9 +354,7 @@ fn simple_match(pat: &[char], s: &[char], pi: usize, si: usize) -> bool {
             // . matches any single char (LIKE _)
             simple_match(pat, s, pi + 1, si + 1)
         }
-        '\\' if pi + 1 < pat.len() => {
-            pat[pi + 1] == s[si] && simple_match(pat, s, pi + 2, si + 1)
-        }
+        '\\' if pi + 1 < pat.len() => pat[pi + 1] == s[si] && simple_match(pat, s, pi + 2, si + 1),
         c if c == s[si] => simple_match(pat, s, pi + 1, si + 1),
         _ => false,
     }
@@ -312,8 +363,8 @@ fn simple_match(pat: &[char], s: &[char], pi: usize, si: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::types::DataType;
     use crate::sql::parser::*;
+    use crate::storage::types::DataType;
 
     fn test_columns() -> Vec<ColumnMeta> {
         vec![
@@ -333,7 +384,11 @@ mod tests {
     #[test]
     fn test_evaluate_column() {
         let expr = Expression::Column("name".to_string());
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Text("Alice".into()));
     }
@@ -345,7 +400,11 @@ mod tests {
             op: BinaryOperator::Eq,
             right: Box::new(Expression::Literal(Datum::Integer(1))),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -357,7 +416,11 @@ mod tests {
             op: BinaryOperator::Gt,
             right: Box::new(Expression::Literal(Datum::Integer(18))),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -377,7 +440,11 @@ mod tests {
                 right: Box::new(Expression::Literal(Datum::Text("Alice".into()))),
             }),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -396,7 +463,11 @@ mod tests {
             expr: Box::new(Expression::Column("name".to_string())),
             pattern: "A%".to_string(),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -432,7 +503,11 @@ mod tests {
             expr: Box::new(Expression::Column("age".to_string())),
             list: vec![Datum::Integer(20), Datum::Integer(30), Datum::Integer(40)],
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -444,7 +519,11 @@ mod tests {
             low: Box::new(Expression::Literal(Datum::Integer(20))),
             high: Box::new(Expression::Literal(Datum::Integer(40))),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -523,7 +602,11 @@ mod tests {
     #[test]
     fn test_evaluate_is_not_null() {
         let expr = Expression::IsNotNull(Box::new(Expression::Column("name".to_string())));
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -534,7 +617,11 @@ mod tests {
             expr: Box::new(Expression::Column("age".to_string())),
             list: vec![],
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(false));
     }
@@ -546,7 +633,11 @@ mod tests {
             low: Box::new(Expression::Literal(Datum::Integer(40))),
             high: Box::new(Expression::Literal(Datum::Integer(50))),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(false));
     }
@@ -557,7 +648,11 @@ mod tests {
             expr: Box::new(Expression::Column("name".to_string())),
             pattern: "Alice".to_string(),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -568,7 +663,11 @@ mod tests {
             expr: Box::new(Expression::Column("name".to_string())),
             pattern: "%ice".to_string(),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -579,7 +678,11 @@ mod tests {
             expr: Box::new(Expression::Column("name".to_string())),
             pattern: "A____".to_string(),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(true));
     }
@@ -612,7 +715,8 @@ mod tests {
 
     #[test]
     fn test_function_round() {
-        let r = evaluate_function("round", &[Datum::Double(3.0 + 0.14159), Datum::Integer(2)]).unwrap();
+        let r =
+            evaluate_function("round", &[Datum::Double(3.0 + 0.14159), Datum::Integer(2)]).unwrap();
         assert_eq!(r, Datum::Double(3.0 + 0.14));
     }
 
@@ -651,7 +755,11 @@ mod tests {
             expr: Box::new(Expression::Column("name".to_string())),
             pattern: "B%".to_string(),
         };
-        let row = [Datum::Integer(1), Datum::Text("Alice".into()), Datum::Integer(30)];
+        let row = [
+            Datum::Integer(1),
+            Datum::Text("Alice".into()),
+            Datum::Integer(30),
+        ];
         let result = evaluate(&expr, &row, &test_columns()).unwrap();
         assert_eq!(result, Datum::Boolean(false));
     }

@@ -43,13 +43,18 @@ impl Catalog {
         // Register built-in engines
         engines.insert("memory".to_string(), Arc::new(MemoryEngine::new()));
         let disk_dir = data_dir.join("engines").join("disk");
-        engines.insert("disk".to_string(), Arc::new(DiskEngine::open(&disk_dir).await?));
+        engines.insert(
+            "disk".to_string(),
+            Arc::new(DiskEngine::open(&disk_dir).await?),
+        );
 
         let (metadata, default_engine) = if catalog_path.exists() {
             let bytes = tokio::fs::read(&catalog_path).await?;
             let data: CatalogData = bincode::deserialize(&bytes)
                 .map_err(|e| HelionError::Serialization(e.to_string()))?;
-            let meta: HashMap<String, TableMeta> = data.tables.into_iter()
+            let meta: HashMap<String, TableMeta> = data
+                .tables
+                .into_iter()
                 .map(|mut m| {
                     m.engine = normalize_engine_name(&m.engine);
                     (m.name.clone(), m)
@@ -87,19 +92,22 @@ impl Catalog {
 
     pub fn get_engine(&self, name: &str) -> Result<&Arc<dyn StorageEngine>> {
         let name = normalize_engine_name(name);
-        self.engines.get(&name).ok_or_else(|| {
-            HelionError::Internal(format!("Unknown engine: {}", name))
-        })
+        self.engines
+            .get(&name)
+            .ok_or_else(|| HelionError::Internal(format!("Unknown engine: {}", name)))
     }
 
     pub fn get_table_engine(&self, table_name: &str) -> Result<&Arc<dyn StorageEngine>> {
         let meta = self.metadata.read();
-        let table_meta = meta.get(table_name).ok_or_else(|| {
-            HelionError::TableNotFound(table_name.to_string())
-        })?;
+        let table_meta = meta
+            .get(table_name)
+            .ok_or_else(|| HelionError::TableNotFound(table_name.to_string()))?;
         let engine_name = &table_meta.engine;
         self.engines.get(engine_name).ok_or_else(|| {
-            HelionError::Internal(format!("Engine '{}' not found for table '{}'", engine_name, table_name))
+            HelionError::Internal(format!(
+                "Engine '{}' not found for table '{}'",
+                engine_name, table_name
+            ))
         })
     }
 
@@ -201,9 +209,9 @@ impl Catalog {
     /// Migrate a table from one engine to another.
     pub async fn migrate_table(&self, name: &str, target_engine: &str) -> Result<()> {
         let target_engine = normalize_engine_name(target_engine);
-        let current_engine_name = self.table_engine_name(name).ok_or_else(|| {
-            HelionError::TableNotFound(name.to_string())
-        })?;
+        let current_engine_name = self
+            .table_engine_name(name)
+            .ok_or_else(|| HelionError::TableNotFound(name.to_string()))?;
         if current_engine_name == target_engine {
             return Ok(());
         }
@@ -285,8 +293,8 @@ impl Catalog {
             default_engine,
             tables,
         };
-        let bytes = bincode::serialize(&data)
-            .map_err(|e| HelionError::Serialization(e.to_string()))?;
+        let bytes =
+            bincode::serialize(&data).map_err(|e| HelionError::Serialization(e.to_string()))?;
         let tmp_path = self.catalog_path.with_extension("tmp");
         tokio::fs::write(&tmp_path, &bytes).await?;
         tokio::fs::rename(&tmp_path, &self.catalog_path).await?;
@@ -309,22 +317,42 @@ mod tests {
     #[tokio::test]
     async fn test_create_table_default_engine() {
         let (catalog, _dir) = setup_catalog().await;
-        catalog.create_table("users", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
+        catalog
+            .create_table(
+                "users",
+                vec![ColumnMeta::new("id", DataType::Integer)],
+                None,
+            )
+            .await
+            .unwrap();
         assert!(catalog.table_exists("users").await.unwrap());
-        assert_eq!(catalog.table_engine_name("users"), Some("memory".to_string()));
+        assert_eq!(
+            catalog.table_engine_name("users"),
+            Some("memory".to_string())
+        );
     }
 
     #[tokio::test]
     async fn test_create_table_memory_engine() {
         let (catalog, _dir) = setup_catalog().await;
-        catalog.create_table("t", vec![ColumnMeta::new("id", DataType::Integer)], Some("memory")).await.unwrap();
+        catalog
+            .create_table(
+                "t",
+                vec![ColumnMeta::new("id", DataType::Integer)],
+                Some("memory"),
+            )
+            .await
+            .unwrap();
         assert!(catalog.table_exists("t").await.unwrap());
     }
 
     #[tokio::test]
     async fn test_drop_table() {
         let (catalog, _dir) = setup_catalog().await;
-        catalog.create_table("t", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
+        catalog
+            .create_table("t", vec![ColumnMeta::new("id", DataType::Integer)], None)
+            .await
+            .unwrap();
         assert!(catalog.table_exists("t").await.unwrap());
         catalog.drop_table("t").await.unwrap();
         assert!(!catalog.table_exists("t").await.unwrap());
@@ -346,8 +374,14 @@ mod tests {
     #[tokio::test]
     async fn test_table_names() {
         let (catalog, _dir) = setup_catalog().await;
-        catalog.create_table("a", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
-        catalog.create_table("b", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
+        catalog
+            .create_table("a", vec![ColumnMeta::new("id", DataType::Integer)], None)
+            .await
+            .unwrap();
+        catalog
+            .create_table("b", vec![ColumnMeta::new("id", DataType::Integer)], None)
+            .await
+            .unwrap();
         let names = catalog.table_names();
         assert_eq!(names.len(), 2);
         assert!(names.contains(&"a".to_string()));
@@ -360,7 +394,14 @@ mod tests {
         // Create catalog, add tables
         {
             let catalog = Catalog::open(dir.path(), "memory").await.unwrap();
-            catalog.create_table("persist_me", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
+            catalog
+                .create_table(
+                    "persist_me",
+                    vec![ColumnMeta::new("id", DataType::Integer)],
+                    None,
+                )
+                .await
+                .unwrap();
             catalog.close().await.unwrap();
         }
         // Re-open catalog, check table still exists
@@ -373,11 +414,21 @@ mod tests {
     #[tokio::test]
     async fn test_scan_and_write_through_catalog() {
         let (catalog, _dir) = setup_catalog().await;
-        catalog.create_table("t", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
+        catalog
+            .create_table("t", vec![ColumnMeta::new("id", DataType::Integer)], None)
+            .await
+            .unwrap();
 
-        catalog.apply_write_set("t", vec![
-            (0usize, RowVersion::new_insert(5, Row::new(vec![Datum::Integer(42)])))
-        ]).await.unwrap();
+        catalog
+            .apply_write_set(
+                "t",
+                vec![(
+                    0usize,
+                    RowVersion::new_insert(5, Row::new(vec![Datum::Integer(42)])),
+                )],
+            )
+            .await
+            .unwrap();
 
         let active = BTreeSet::new();
         let rows = catalog.scan_visible("t", 100, &active).await.unwrap();
@@ -388,11 +439,21 @@ mod tests {
     #[tokio::test]
     async fn test_migrate_table() {
         let (catalog, _dir) = setup_catalog().await;
-        catalog.create_table("t", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
+        catalog
+            .create_table("t", vec![ColumnMeta::new("id", DataType::Integer)], None)
+            .await
+            .unwrap();
 
-        catalog.apply_write_set("t", vec![
-            (0usize, RowVersion::new_insert(5, Row::new(vec![Datum::Integer(42)])))
-        ]).await.unwrap();
+        catalog
+            .apply_write_set(
+                "t",
+                vec![(
+                    0usize,
+                    RowVersion::new_insert(5, Row::new(vec![Datum::Integer(42)])),
+                )],
+            )
+            .await
+            .unwrap();
 
         // Migrate to same engine (Memory → Memory)
         catalog.migrate_table("t", "memory").await.unwrap();

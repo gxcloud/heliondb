@@ -88,7 +88,10 @@ impl PermissionStore {
                     if granted_cols.is_empty() {
                         return true; // all columns
                     }
-                    if columns.iter().all(|c| granted_cols.iter().any(|gc| gc.eq_ignore_ascii_case(c))) {
+                    if columns
+                        .iter()
+                        .all(|c| granted_cols.iter().any(|gc| gc.eq_ignore_ascii_case(c)))
+                    {
                         return true;
                     }
                 }
@@ -113,7 +116,10 @@ impl PermissionStore {
                     if granted_cols.is_empty() {
                         return true;
                     }
-                    if columns.iter().all(|c| granted_cols.iter().any(|gc| gc.eq_ignore_ascii_case(c))) {
+                    if columns
+                        .iter()
+                        .all(|c| granted_cols.iter().any(|gc| gc.eq_ignore_ascii_case(c)))
+                    {
                         return true;
                     }
                 }
@@ -138,7 +144,10 @@ impl PermissionStore {
                     if granted_cols.is_empty() {
                         return true;
                     }
-                    if columns.iter().all(|c| granted_cols.iter().any(|gc| gc.eq_ignore_ascii_case(c))) {
+                    if columns
+                        .iter()
+                        .all(|c| granted_cols.iter().any(|gc| gc.eq_ignore_ascii_case(c)))
+                    {
                         return true;
                     }
                 }
@@ -204,7 +213,11 @@ mod tests {
     #[test]
     fn test_grant_select_specific_columns() {
         let mut store = PermissionStore::new();
-        store.grant("alice", "users", Permission::Select(vec!["id".into(), "name".into()]));
+        store.grant(
+            "alice",
+            "users",
+            Permission::Select(vec!["id".into(), "name".into()]),
+        );
         assert!(store.can_select("alice", "users", &["id"]));
         assert!(store.can_select("alice", "users", &["name"]));
         assert!(!store.can_select("alice", "users", &["email"]));
@@ -307,7 +320,11 @@ mod tests {
     #[test]
     fn test_select_requires_all_requested_columns() {
         let mut store = PermissionStore::new();
-        store.grant("alice", "users", Permission::Select(vec!["id".into(), "name".into()]));
+        store.grant(
+            "alice",
+            "users",
+            Permission::Select(vec!["id".into(), "name".into()]),
+        );
         // Need ALL columns to be granted
         assert!(!store.can_select("alice", "users", &["id", "email"]));
     }
@@ -315,10 +332,7 @@ mod tests {
     #[test]
     fn test_from_grants() {
         let mut grants = HashMap::new();
-        grants.insert(
-            ("alice".into(), "users".into()),
-            vec![Permission::All],
-        );
+        grants.insert(("alice".into(), "users".into()), vec![Permission::All]);
         let store = PermissionStore::from_grants(grants);
         assert!(store.can_select("alice", "users", &["id"]));
     }

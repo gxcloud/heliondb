@@ -64,5 +64,3 @@ impl From<sqlparser::parser::ParserError> for HelionError {
         HelionError::Parse(e.to_string())
     }
 }
-
-

@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use crate::error::{HelionError, Result};
 use crate::storage::types::{ColumnMeta, DataType, Row};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RowVersion {
@@ -63,12 +63,18 @@ impl Table {
     }
 
     pub fn column_index(&self, name: &str) -> Option<usize> {
-        self.columns.iter().position(|c| c.name.eq_ignore_ascii_case(name))
+        self.columns
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(name))
     }
 
     /// Return all visible row versions for the given snapshot.
     /// Returns a vector of (chain_index, &Row) pairs.
-    pub fn scan_visible(&self, snapshot_txid: u64, active_txns: &std::collections::BTreeSet<u64>) -> Vec<(usize, &Row)> {
+    pub fn scan_visible(
+        &self,
+        snapshot_txid: u64,
+        active_txns: &std::collections::BTreeSet<u64>,
+    ) -> Vec<(usize, &Row)> {
         self.version_chains
             .iter()
             .enumerate()
@@ -223,21 +229,30 @@ mod tests {
 
     #[test]
     fn test_visibility_own_transaction() {
-        let v = RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]));
+        let v = RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]),
+        );
         let active = BTreeSet::new();
         assert!(is_version_visible(&v, 5, &active));
     }
 
     #[test]
     fn test_visibility_committed() {
-        let v = RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]));
+        let v = RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]),
+        );
         let active = BTreeSet::new();
         assert!(is_version_visible(&v, 10, &active));
     }
 
     #[test]
     fn test_visibility_uncommitted() {
-        let v = RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]));
+        let v = RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]),
+        );
         let mut active = BTreeSet::new();
         active.insert(5);
         assert!(!is_version_visible(&v, 10, &active));
@@ -245,7 +260,10 @@ mod tests {
 
     #[test]
     fn test_visibility_deleted() {
-        let mut v = RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]));
+        let mut v = RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]),
+        );
         v.txid_max = 10;
         // tx 5 wrote it, tx 10 deleted/overwrote it
         let active = BTreeSet::new();
@@ -264,7 +282,10 @@ mod tests {
     #[test]
     fn test_validate_row_wrong_type() {
         let t = test_table();
-        let row = Row::new(vec![Datum::Text("not_int".into()), Datum::Text("hello".into())]);
+        let row = Row::new(vec![
+            Datum::Text("not_int".into()),
+            Datum::Text("hello".into()),
+        ]);
         assert!(t.validate_row(&row).is_err());
     }
 
@@ -286,12 +307,14 @@ mod tests {
     #[test]
     fn test_scan_visible() {
         let mut t = test_table();
-        t.version_chains.push(vec![
-            RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]))
-        ]);
-        t.version_chains.push(vec![
-            RowVersion::new_insert(10, Row::new(vec![Datum::Integer(2), Datum::Text("b".into())]))
-        ]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]),
+        )]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            10,
+            Row::new(vec![Datum::Integer(2), Datum::Text("b".into())]),
+        )]);
         let active = BTreeSet::new();
 
         // Tx 7 should only see row 0 (tx 5 committed)
@@ -307,8 +330,14 @@ mod tests {
     #[test]
     fn test_latest_visible_skips_deleted() {
         let chain = vec![
-            RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())])),
-            RowVersion::new_delete(10, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())])),
+            RowVersion::new_insert(
+                5,
+                Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]),
+            ),
+            RowVersion::new_delete(
+                10,
+                Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]),
+            ),
         ];
         let active = BTreeSet::new();
         let t = test_table();
@@ -327,9 +356,10 @@ mod tests {
     #[test]
     fn test_scan_visible_all_uncommitted() {
         let mut t = test_table();
-        t.version_chains.push(vec![
-            RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]))
-        ]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(1), Datum::Text("a".into())]),
+        )]);
         let mut active = BTreeSet::new();
         active.insert(5);
         // tx 5 is still active, so no rows should be visible
@@ -389,7 +419,10 @@ mod tests {
     #[test]
     fn test_types_compatible_string() {
         assert!(types_compatible(&DataType::VarChar(None), &DataType::Text));
-        assert!(types_compatible(&DataType::Text, &DataType::VarChar(Some(100))));
+        assert!(types_compatible(
+            &DataType::Text,
+            &DataType::VarChar(Some(100))
+        ));
         assert!(types_compatible(&DataType::Char(None), &DataType::Text));
     }
 

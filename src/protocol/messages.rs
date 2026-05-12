@@ -7,7 +7,11 @@ pub enum ClientMessage {
     /// Prepare a statement
     Prepare { sql: String, token: u64 },
     /// Execute a prepared statement
-    Execute { prepared_id: u64, params: Vec<String>, token: u64 },
+    Execute {
+        prepared_id: u64,
+        params: Vec<String>,
+        token: u64,
+    },
     /// Authenticate with username and password
     Auth { username: String, password: String },
 }
@@ -25,7 +29,11 @@ pub enum ServerMessage {
     /// Error message
     Error { message: String },
     /// Authentication result
-    AuthResult { success: bool, token: u64, error: Option<String> },
+    AuthResult {
+        success: bool,
+        token: u64,
+        error: Option<String>,
+    },
 }
 
 #[cfg(test)]
@@ -34,7 +42,10 @@ mod tests {
 
     #[test]
     fn test_serialize_query() {
-        let msg = ClientMessage::Query { sql: "SELECT 1".to_string(), token: 42 };
+        let msg = ClientMessage::Query {
+            sql: "SELECT 1".to_string(),
+            token: 42,
+        };
         let bytes = bincode::serialize(&msg).unwrap();
         let deserialized: ClientMessage = bincode::deserialize(&bytes).unwrap();
         match deserialized {
@@ -48,7 +59,10 @@ mod tests {
 
     #[test]
     fn test_serialize_auth() {
-        let msg = ClientMessage::Auth { username: "alice".into(), password: "secret".into() };
+        let msg = ClientMessage::Auth {
+            username: "alice".into(),
+            password: "secret".into(),
+        };
         let bytes = bincode::serialize(&msg).unwrap();
         let deserialized: ClientMessage = bincode::deserialize(&bytes).unwrap();
         match deserialized {
@@ -62,11 +76,19 @@ mod tests {
 
     #[test]
     fn test_serialize_auth_result() {
-        let msg = ServerMessage::AuthResult { success: true, token: 123, error: None };
+        let msg = ServerMessage::AuthResult {
+            success: true,
+            token: 123,
+            error: None,
+        };
         let bytes = bincode::serialize(&msg).unwrap();
         let deserialized: ServerMessage = bincode::deserialize(&bytes).unwrap();
         match deserialized {
-            ServerMessage::AuthResult { success, token, error } => {
+            ServerMessage::AuthResult {
+                success,
+                token,
+                error,
+            } => {
                 assert!(success);
                 assert_eq!(token, 123);
                 assert!(error.is_none());
@@ -85,7 +107,11 @@ mod tests {
         let bytes = bincode::serialize(&msg).unwrap();
         let deserialized: ServerMessage = bincode::deserialize(&bytes).unwrap();
         match deserialized {
-            ServerMessage::QueryResult { columns, rows, error } => {
+            ServerMessage::QueryResult {
+                columns,
+                rows,
+                error,
+            } => {
                 assert_eq!(columns, vec!["id"]);
                 assert_eq!(rows, vec![vec!["1"]]);
                 assert!(error.is_none());

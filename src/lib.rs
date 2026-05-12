@@ -63,21 +63,23 @@
 //!   `TEXT`, `BOOLEAN`, `DATE`, `TIME`, `TIMESTAMP`, `UUID`
 
 pub mod error;
-pub mod storage;
-pub mod sql;
 pub mod executor;
-pub mod server;
 pub mod protocol;
+pub mod server;
+pub mod sql;
+pub mod storage;
 
 pub use error::HelionError;
-pub use storage::engine::DatabaseEngine;
-pub use storage::mvcc::{Transaction, WriteEntry, WriteOp, TransactionStatus};
-pub use storage::table::Table;
-pub use storage::types::{DataType, Datum, ColumnMeta, Row};
-pub use sql::parser::{parse, HelionStatement, Expression, SelectColumn, BinaryOperator, UnaryOperator};
-pub use sql::planner::{plan, LogicalPlan};
-pub use executor::ops::{execute, execute_as, QueryResult};
 pub use executor::eval::evaluate;
-pub use storage::users::{User, UserStore};
-pub use storage::permissions::{Permission, PermissionStore};
+pub use executor::ops::{execute, execute_as, QueryResult};
 pub use protocol::auth::SessionManager;
+pub use sql::parser::{
+    parse, BinaryOperator, Expression, HelionStatement, SelectColumn, UnaryOperator,
+};
+pub use sql::planner::{plan, LogicalPlan};
+pub use storage::engine::DatabaseEngine;
+pub use storage::mvcc::{Transaction, TransactionStatus, WriteEntry, WriteOp};
+pub use storage::permissions::{Permission, PermissionStore};
+pub use storage::table::Table;
+pub use storage::types::{ColumnMeta, DataType, Datum, Row};
+pub use storage::users::{User, UserStore};

@@ -55,8 +55,12 @@ pub async fn write_checkpoint(
             let chains = t.version_chains.clone();
             // Debug: print row counts per table
             let visible = t.scan_visible(u64::MAX, &std::collections::BTreeSet::new());
-            tracing::debug!("Checkpoint: table '{}' has {} version chains, {} visible",
-                t.name, chains.len(), visible.len());
+            tracing::debug!(
+                "Checkpoint: table '{}' has {} version chains, {} visible",
+                t.name,
+                chains.len(),
+                visible.len()
+            );
             (t.name.clone(), columns, chains)
         })
         .collect();

@@ -1,13 +1,13 @@
+use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tracing::{error, info};
 
 use crate::error::{HelionError, Result};
-use crate::storage::engine::DatabaseEngine;
 use crate::server::session::handle_connection;
+use crate::storage::engine::DatabaseEngine;
 
 pub struct QuicServer {
     engine: Arc<Mutex<DatabaseEngine>>,
@@ -32,7 +32,9 @@ impl QuicServer {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let addr: std::net::SocketAddr = self.addr.parse()
+        let addr: std::net::SocketAddr = self
+            .addr
+            .parse()
             .map_err(|e| HelionError::Protocol(format!("Invalid listen address: {}", e)))?;
 
         let (cert, key) = self.load_or_generate_certs().await?;
@@ -62,9 +64,7 @@ impl QuicServer {
     ) -> Result<ServerConfig> {
         let mut transport = TransportConfig::default();
         transport.max_concurrent_bidi_streams(100u32.into());
-        transport.max_idle_timeout(Some(
-            std::time::Duration::from_secs(30).try_into().unwrap()
-        ));
+        transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
 
         let mut server_config = ServerConfig::with_single_cert(cert, key)
             .map_err(|e| HelionError::Protocol(format!("TLS config error: {}", e)))?;
@@ -83,9 +83,10 @@ impl QuicServer {
                 let cert_bytes = tokio::fs::read(cert_path).await?;
                 let key_bytes = tokio::fs::read(key_path).await?;
 
-                let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_bytes.as_slice())
-                    .collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(|e| HelionError::Io(e.to_string()))?;
+                let certs: Vec<CertificateDer<'static>> =
+                    rustls_pemfile::certs(&mut cert_bytes.as_slice())
+                        .collect::<std::result::Result<Vec<_>, _>>()
+                        .map_err(|e| HelionError::Io(e.to_string()))?;
 
                 let key = rustls_pemfile::private_key(&mut key_bytes.as_slice())
                     .map_err(|e| HelionError::Io(e.to_string()))?
@@ -99,11 +100,12 @@ impl QuicServer {
         Self::generate_self_signed_cert()
     }
 
-    fn generate_self_signed_cert(
-    ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
-        let certified_key = rcgen::generate_simple_self_signed(
-            vec!["heliondb.local".to_string(), "localhost".to_string()],
-        )
+    fn generate_self_signed_cert() -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)>
+    {
+        let certified_key = rcgen::generate_simple_self_signed(vec![
+            "heliondb.local".to_string(),
+            "localhost".to_string(),
+        ])
         .map_err(|e| HelionError::Protocol(format!("Cert generation error: {}", e)))?;
 
         let cert_der = certified_key.cert.der().as_ref().to_vec();
@@ -116,10 +118,7 @@ impl QuicServer {
     }
 }
 
-async fn handle_incoming(
-    incoming: Incoming,
-    engine: Arc<Mutex<DatabaseEngine>>,
-) -> Result<()> {
+async fn handle_incoming(incoming: Incoming, engine: Arc<Mutex<DatabaseEngine>>) -> Result<()> {
     let connecting = incoming
         .accept()
         .map_err(|e| HelionError::Protocol(format!("Accept error: {}", e)))?;

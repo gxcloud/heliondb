@@ -1,12 +1,16 @@
 use clap::Parser;
-use tracing_subscriber::EnvFilter;
 use tracing::info;
+use tracing_subscriber::EnvFilter;
 
 use heliondb::server::quic::QuicServer;
 use heliondb::storage::engine::DatabaseEngine;
 
 #[derive(Parser, Debug)]
-#[command(name = "heliondb", version, about = "In-memory SQL database with QUIC transport")]
+#[command(
+    name = "heliondb",
+    version,
+    about = "In-memory SQL database with QUIC transport"
+)]
 struct Cli {
     /// Data directory for WAL and checkpoint files
     #[arg(long, default_value = "./data")]
@@ -37,8 +41,9 @@ struct Cli {
 async fn main() -> anyhow::Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let cli = Cli::parse();
@@ -48,17 +53,14 @@ async fn main() -> anyhow::Result<()> {
     info!("Listen address: quic://{}", cli.listen);
 
     // Open database engine (creates or replays WAL)
-    let engine = DatabaseEngine::open_with_default_engine(cli.data_dir.as_ref(), &cli.default_engine).await?;
+    let engine =
+        DatabaseEngine::open_with_default_engine(cli.data_dir.as_ref(), &cli.default_engine)
+            .await?;
 
     info!("Database engine initialized");
 
     // Start QUIC server
-    let server = QuicServer::new(
-        engine,
-        &cli.listen,
-        cli.cert,
-        cli.key,
-    );
+    let server = QuicServer::new(engine, &cli.listen, cli.cert, cli.key);
 
     server.start().await?;
 

@@ -1,6 +1,6 @@
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DataType {
@@ -160,27 +160,39 @@ impl fmt::Display for Datum {
 }
 
 impl From<bool> for Datum {
-    fn from(b: bool) -> Self { Datum::Boolean(b) }
+    fn from(b: bool) -> Self {
+        Datum::Boolean(b)
+    }
 }
 
 impl From<i32> for Datum {
-    fn from(i: i32) -> Self { Datum::Integer(i) }
+    fn from(i: i32) -> Self {
+        Datum::Integer(i)
+    }
 }
 
 impl From<i64> for Datum {
-    fn from(i: i64) -> Self { Datum::BigInt(i) }
+    fn from(i: i64) -> Self {
+        Datum::BigInt(i)
+    }
 }
 
 impl From<f64> for Datum {
-    fn from(f: f64) -> Self { Datum::Double(f) }
+    fn from(f: f64) -> Self {
+        Datum::Double(f)
+    }
 }
 
 impl From<String> for Datum {
-    fn from(s: String) -> Self { Datum::Text(s) }
+    fn from(s: String) -> Self {
+        Datum::Text(s)
+    }
 }
 
 impl From<&str> for Datum {
-    fn from(s: &str) -> Self { Datum::Text(s.to_string()) }
+    fn from(s: &str) -> Self {
+        Datum::Text(s.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -298,7 +310,10 @@ mod tests {
 
     #[test]
     fn test_datum_from_f64() {
-        assert_eq!(Datum::from(3.0f64 + 0.14f64), Datum::Double(3.0f64 + 0.14f64));
+        assert_eq!(
+            Datum::from(3.0f64 + 0.14f64),
+            Datum::Double(3.0f64 + 0.14f64)
+        );
         assert_eq!(Datum::from(-0.0f64), Datum::Double(-0.0));
     }
 

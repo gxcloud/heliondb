@@ -1,9 +1,9 @@
+use crate::storage::table::{RowVersion, Table};
+use crate::storage::types::Row;
+use parking_lot::RwLock;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use parking_lot::RwLock;
-use crate::storage::types::Row;
-use crate::storage::table::{RowVersion, Table};
 
 pub type TransactionId = u64;
 
@@ -177,7 +177,8 @@ impl MvccStore {
                         if entry.row_idx < table.version_chains.len() {
                             if let Some(latest) = table.version_chains[entry.row_idx].last() {
                                 let old_row = latest.row.clone();
-                                change_list.push((entry.row_idx, RowVersion::new_delete(tx_id, old_row)));
+                                change_list
+                                    .push((entry.row_idx, RowVersion::new_delete(tx_id, old_row)));
                             }
                         }
                     }
@@ -229,9 +230,10 @@ mod tests {
         ];
         let mut table = Table::new("users", columns);
         // Add one row from tx 10
-        table.version_chains.push(vec![
-            RowVersion::new_insert(10, Row::new(vec![Datum::Integer(1), Datum::Text("Alice".into())]))
-        ]);
+        table.version_chains.push(vec![RowVersion::new_insert(
+            10,
+            Row::new(vec![Datum::Integer(1), Datum::Text("Alice".into())]),
+        )]);
         tables.insert("users".to_string(), table);
         tables
     }
@@ -280,20 +282,26 @@ mod tests {
         store.add_active(20);
 
         // Simulate: tx 20 (still active) modified row 0
-        tables.get_mut("users").unwrap().version_chains[0].push(
-            RowVersion::new_update(20, Row::new(vec![Datum::Integer(1), Datum::Text("Bob".into())]))
-        );
+        tables.get_mut("users").unwrap().version_chains[0].push(RowVersion::new_update(
+            20,
+            Row::new(vec![Datum::Integer(1), Datum::Text("Bob".into())]),
+        ));
 
         // Now tx 30 begins — its snapshot should include active tx 20
         let mut tx = store.begin_transaction();
-        assert!(tx.snapshot.active.contains(&20),
-            "tx 30's snapshot should include active tx 20");
+        assert!(
+            tx.snapshot.active.contains(&20),
+            "tx 30's snapshot should include active tx 20"
+        );
 
         tx.add_write(WriteEntry {
             table_name: "users".to_string(),
             row_idx: 0,
             old_txid_max: u64::MAX,
-            operation: WriteOp::Update(Row::new(vec![Datum::Integer(1), Datum::Text("Charlie".into())])),
+            operation: WriteOp::Update(Row::new(vec![
+                Datum::Integer(1),
+                Datum::Text("Charlie".into()),
+            ])),
         });
 
         // tx 20 is still active and modified the same row — conflict!
@@ -306,16 +314,16 @@ mod tests {
     fn test_apply_write_set_insert() {
         let tables = setup_tables();
         let _store = MvccStore::new();
-        let tx = Transaction::new(
-            99,
-            Snapshot::new(99, BTreeSet::new()),
-        );
+        let tx = Transaction::new(99, Snapshot::new(99, BTreeSet::new()));
 
         let entries = vec![WriteEntry {
             table_name: "users".to_string(),
             row_idx: 1, // new row, idx >= current len
             old_txid_max: u64::MAX,
-            operation: WriteOp::Insert(Row::new(vec![Datum::Integer(2), Datum::Text("Bob".into())])),
+            operation: WriteOp::Insert(Row::new(vec![
+                Datum::Integer(2),
+                Datum::Text("Bob".into()),
+            ])),
         }];
 
         let changes = MvccStore::apply_write_set(&entries, &tables, tx.tx_id);
@@ -332,22 +340,22 @@ mod tests {
     fn test_apply_write_set_update() {
         let tables = setup_tables();
         let _store = MvccStore::new();
-        let tx = Transaction::new(
-            99,
-            Snapshot::new(99, BTreeSet::new()),
-        );
+        let tx = Transaction::new(99, Snapshot::new(99, BTreeSet::new()));
 
         let entries = vec![WriteEntry {
             table_name: "users".to_string(),
             row_idx: 0,
             old_txid_max: u64::MAX,
-            operation: WriteOp::Update(Row::new(vec![Datum::Integer(1), Datum::Text("Updated".into())])),
+            operation: WriteOp::Update(Row::new(vec![
+                Datum::Integer(1),
+                Datum::Text("Updated".into()),
+            ])),
         }];
 
         let changes = MvccStore::apply_write_set(&entries, &tables, tx.tx_id);
         if let Some(new_chains) = changes.get("users") {
             assert_eq!(new_chains[0].len(), 2); // original + update
-            // Original version should have txid_max = 99
+                                                // Original version should have txid_max = 99
             assert_eq!(new_chains[0][0].txid_max, 99);
             // New version should have txid_min = 99
             assert_eq!(new_chains[0][1].txid_min, 99);

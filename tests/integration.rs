@@ -36,7 +36,11 @@ async fn exec_as(engine: &DatabaseEngine, sql: &str, user: &str) -> QueryResult 
 #[tokio::test]
 async fn test_full_create_insert_select() {
     let (engine, _dir) = setup().await;
-    exec(&engine, "CREATE TABLE users (id INTEGER, name TEXT, age INTEGER)").await;
+    exec(
+        &engine,
+        "CREATE TABLE users (id INTEGER, name TEXT, age INTEGER)",
+    )
+    .await;
     exec(&engine, "INSERT INTO users VALUES (1, 'Alice', 30)").await;
     exec(&engine, "INSERT INTO users VALUES (2, 'Bob', 25)").await;
     exec(&engine, "INSERT INTO users VALUES (3, 'Charlie', 35)").await;
@@ -51,7 +55,11 @@ async fn test_where_filter() {
     let (engine, _dir) = setup().await;
     exec(&engine, "CREATE TABLE t (id INTEGER, val INTEGER)").await;
     for i in 1..=5 {
-        exec(&engine, &format!("INSERT INTO t VALUES ({}, {})", i, i * 10)).await;
+        exec(
+            &engine,
+            &format!("INSERT INTO t VALUES ({}, {})", i, i * 10),
+        )
+        .await;
     }
 
     let r = exec(&engine, "SELECT id FROM t WHERE val > 30").await;
@@ -65,7 +73,11 @@ async fn test_where_filter() {
 #[tokio::test]
 async fn test_where_complex() {
     let (engine, _dir) = setup().await;
-    exec(&engine, "CREATE TABLE t (id INTEGER, name TEXT, age INTEGER)").await;
+    exec(
+        &engine,
+        "CREATE TABLE t (id INTEGER, name TEXT, age INTEGER)",
+    )
+    .await;
     exec(&engine, "INSERT INTO t VALUES (1, 'Alice', 30)").await;
     exec(&engine, "INSERT INTO t VALUES (2, 'Bob', 20)").await;
     exec(&engine, "INSERT INTO t VALUES (3, 'Charlie', 25)").await;
@@ -78,7 +90,11 @@ async fn test_where_complex() {
     let r = exec(&engine, "SELECT name FROM t WHERE age < 22 OR age > 32").await;
     assert_eq!(r.rows.len(), 2);
 
-    let r = exec(&engine, "SELECT name FROM t WHERE age IN (20, 30) ORDER BY id").await;
+    let r = exec(
+        &engine,
+        "SELECT name FROM t WHERE age IN (20, 30) ORDER BY id",
+    )
+    .await;
     assert_eq!(r.rows.len(), 2);
 
     let r = exec(&engine, "SELECT name FROM t WHERE name LIKE 'A%'").await;
@@ -89,7 +105,11 @@ async fn test_where_complex() {
 #[tokio::test]
 async fn test_order_by_multiple() {
     let (engine, _dir) = setup().await;
-    exec(&engine, "CREATE TABLE t (id INTEGER, name TEXT, age INTEGER)").await;
+    exec(
+        &engine,
+        "CREATE TABLE t (id INTEGER, name TEXT, age INTEGER)",
+    )
+    .await;
     exec(&engine, "INSERT INTO t VALUES (1, 'Charlie', 30)").await;
     exec(&engine, "INSERT INTO t VALUES (2, 'Alice', 30)").await;
     exec(&engine, "INSERT INTO t VALUES (3, 'Bob', 25)").await;
@@ -162,11 +182,15 @@ async fn test_update_no_where_all_rows() {
 #[tokio::test]
 async fn test_create_table_all_types() {
     let (engine, _dir) = setup().await;
-    exec(&engine, "CREATE TABLE t (
+    exec(
+        &engine,
+        "CREATE TABLE t (
         a BOOLEAN, b SMALLINT, c INTEGER, d BIGINT,
         e REAL, f DOUBLE, g TEXT, h VARCHAR(100),
         i CHAR(10), j DATE, k TIME, l TIMESTAMP
-    )").await;
+    )",
+    )
+    .await;
 
     let tables = engine.get_tables().await;
     assert_eq!(tables[0].columns.len(), 12);
@@ -183,7 +207,11 @@ async fn test_create_duplicate_table_fails() {
     let (engine, _dir) = setup().await;
     exec(&engine, "CREATE TABLE t (id INTEGER)").await;
     let stmts = parse("CREATE TABLE t (x INTEGER)").unwrap();
-    let result = execute(&engine, &plan(&stmts[0], &engine.get_tables().await).unwrap()).await;
+    let result = execute(
+        &engine,
+        &plan(&stmts[0], &engine.get_tables().await).unwrap(),
+    )
+    .await;
     assert!(result.is_err());
 }
 
@@ -251,7 +279,11 @@ async fn test_empty_table_select() {
 async fn test_multiple_tables() {
     let (engine, _dir) = setup().await;
     exec(&engine, "CREATE TABLE users (id INTEGER, name TEXT)").await;
-    exec(&engine, "CREATE TABLE posts (id INTEGER, user_id INTEGER, title TEXT)").await;
+    exec(
+        &engine,
+        "CREATE TABLE posts (id INTEGER, user_id INTEGER, title TEXT)",
+    )
+    .await;
     exec(&engine, "INSERT INTO users VALUES (1, 'Alice')").await;
     exec(&engine, "INSERT INTO users VALUES (2, 'Bob')").await;
     exec(&engine, "INSERT INTO posts VALUES (1, 1, 'Hello')").await;
@@ -323,12 +355,18 @@ async fn test_user_full_lifecycle() {
 async fn test_permission_select_full() {
     let (engine, _dir) = setup().await;
     exec(&engine, "CREATE USER bob WITH PASSWORD 'pw'").await;
-    exec(&engine, "CREATE TABLE t (id INTEGER, name TEXT, secret TEXT)").await;
+    exec(
+        &engine,
+        "CREATE TABLE t (id INTEGER, name TEXT, secret TEXT)",
+    )
+    .await;
     exec(&engine, "INSERT INTO t VALUES (1, 'Alice', 'topsecret')").await;
 
     let tables = engine.get_tables().await;
     let s = &parse("GRANT SELECT(id, name) ON t TO bob").unwrap();
-    execute(&engine, &plan(&s[0], &tables).unwrap()).await.unwrap();
+    execute(&engine, &plan(&s[0], &tables).unwrap())
+        .await
+        .unwrap();
 
     let s = &parse("SELECT id, name FROM t").unwrap();
     let p = plan(&s[0], &tables).unwrap();
@@ -350,7 +388,9 @@ async fn test_permission_grant_all() {
 
     let tables = engine.get_tables().await;
     let s = &parse("GRANT ALL ON t TO bob").unwrap();
-    execute(&engine, &plan(&s[0], &tables).unwrap()).await.unwrap();
+    execute(&engine, &plan(&s[0], &tables).unwrap())
+        .await
+        .unwrap();
 
     assert!(engine.has_permission("bob", "t", &["id", "val"]).await);
 }
@@ -365,7 +405,9 @@ async fn test_permission_delete() {
 
     let tables = engine.get_tables().await;
     let s = &parse("GRANT DELETE ON t TO bob").unwrap();
-    execute(&engine, &plan(&s[0], &tables).unwrap()).await.unwrap();
+    execute(&engine, &plan(&s[0], &tables).unwrap())
+        .await
+        .unwrap();
 
     let result = exec_as(&engine, "DELETE FROM t WHERE id = 1", "bob").await;
     assert_eq!(result.rows_affected, 1);
@@ -384,11 +426,15 @@ async fn test_permission_revoke() {
 
     let tables = engine.get_tables().await;
     let s = &parse("GRANT ALL ON t TO bob").unwrap();
-    execute(&engine, &plan(&s[0], &tables).unwrap()).await.unwrap();
+    execute(&engine, &plan(&s[0], &tables).unwrap())
+        .await
+        .unwrap();
     assert!(engine.has_permission("bob", "t", &["id"]).await);
 
     let s = &parse("REVOKE ALL ON t FROM bob").unwrap();
-    execute(&engine, &plan(&s[0], &tables).unwrap()).await.unwrap();
+    execute(&engine, &plan(&s[0], &tables).unwrap())
+        .await
+        .unwrap();
     assert!(!engine.has_permission("bob", "t", &["id"]).await);
 }
 
@@ -398,7 +444,9 @@ async fn test_permission_no_user_error() {
     exec(&engine, "CREATE TABLE t (id INTEGER)").await;
     let tables = engine.get_tables().await;
     let s = &parse("GRANT SELECT ON t TO nonexistent").unwrap();
-    let err = execute(&engine, &plan(&s[0], &tables).unwrap()).await.unwrap_err();
+    let err = execute(&engine, &plan(&s[0], &tables).unwrap())
+        .await
+        .unwrap_err();
     assert!(matches!(err, HelionError::Auth(_)));
 }
 
@@ -408,7 +456,9 @@ async fn test_permission_no_table_error() {
     exec(&engine, "CREATE USER bob WITH PASSWORD 'pw'").await;
     let tables = engine.get_tables().await;
     let s = &parse("GRANT SELECT ON nonexistent TO bob").unwrap();
-    let err = execute(&engine, &plan(&s[0], &tables).unwrap()).await.unwrap_err();
+    let err = execute(&engine, &plan(&s[0], &tables).unwrap())
+        .await
+        .unwrap_err();
     assert!(matches!(err, HelionError::TableNotFound(_)));
 }
 
@@ -449,7 +499,9 @@ async fn test_multiple_users_independent_permissions() {
 
     let tables = engine.get_tables().await;
     let s = &parse("GRANT SELECT ON t TO alice").unwrap();
-    execute(&engine, &plan(&s[0], &tables).unwrap()).await.unwrap();
+    execute(&engine, &plan(&s[0], &tables).unwrap())
+        .await
+        .unwrap();
 
     let s = &parse("SELECT * FROM t").unwrap();
     let p = plan(&s[0], &tables).unwrap();
@@ -490,7 +542,13 @@ async fn test_wal_recovery_multi_insert() {
         // Write each insert in its own transaction via exec helper
         exec(&engine, "INSERT INTO t VALUES (10)").await;
         exec(&engine, "INSERT INTO t VALUES (20)").await;
-        assert_eq!(exec(&engine, "SELECT * FROM t ORDER BY id").await.rows.len(), 2);
+        assert_eq!(
+            exec(&engine, "SELECT * FROM t ORDER BY id")
+                .await
+                .rows
+                .len(),
+            2
+        );
         engine.shutdown().await.unwrap();
     }
     {
@@ -531,8 +589,12 @@ async fn test_wal_recovery_with_update() {
         use std::collections::BTreeSet;
         let visible = tables[0].scan_visible(u64::MAX, &BTreeSet::new());
         assert_eq!(visible.len(), 1, "Should have 1 visible row");
-        assert_eq!(visible[0].1.get(1), Some(&Datum::BigInt(999)),
-            "Updated value (index 1) should be 999, got {:?}", visible[0].1.get(1));
+        assert_eq!(
+            visible[0].1.get(1),
+            Some(&Datum::BigInt(999)),
+            "Updated value (index 1) should be 999, got {:?}",
+            visible[0].1.get(1)
+        );
         engine.shutdown().await.unwrap();
     }
 }
@@ -567,7 +629,9 @@ async fn test_wal_recovery_with_users_and_grants() {
         exec(&engine, "CREATE USER alice WITH PASSWORD 'secret'").await;
         let tables = engine.get_tables().await;
         let s = &parse("GRANT SELECT ON t TO alice").unwrap();
-        execute(&engine, &plan(&s[0], &tables).unwrap()).await.unwrap();
+        execute(&engine, &plan(&s[0], &tables).unwrap())
+            .await
+            .unwrap();
         engine.shutdown().await.unwrap();
     }
     {
@@ -601,16 +665,27 @@ async fn test_wal_recovery_drop_table() {
 async fn test_disk_engine_persists_across_restart() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory").await.unwrap();
-        exec(&engine, "CREATE TABLE disk_items (id INTEGER, name TEXT) ENGINE = disk").await;
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+            .await
+            .unwrap();
+        exec(
+            &engine,
+            "CREATE TABLE disk_items (id INTEGER, name TEXT) ENGINE = disk",
+        )
+        .await;
         exec(&engine, "INSERT INTO disk_items VALUES (1, 'alpha')").await;
         engine.shutdown().await.unwrap();
     }
 
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory").await.unwrap();
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+            .await
+            .unwrap();
         let result = exec(&engine, "SELECT * FROM disk_items").await;
-        assert_eq!(result.rows, vec![vec!["1".to_string(), "alpha".to_string()]]);
+        assert_eq!(
+            result.rows,
+            vec![vec!["1".to_string(), "alpha".to_string()]]
+        );
         engine.shutdown().await.unwrap();
     }
 }
@@ -619,7 +694,9 @@ async fn test_disk_engine_persists_across_restart() {
 async fn test_alter_table_engine_roundtrip() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory").await.unwrap();
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+            .await
+            .unwrap();
         exec(&engine, "CREATE TABLE migrate_me (id INTEGER, name TEXT)").await;
         exec(&engine, "INSERT INTO migrate_me VALUES (1, 'before')").await;
         exec(&engine, "ALTER TABLE migrate_me ENGINE = disk").await;
@@ -628,20 +705,28 @@ async fn test_alter_table_engine_roundtrip() {
         let visible = tables[0].scan_visible(u64::MAX, &std::collections::BTreeSet::new());
         assert_eq!(visible.len(), 2);
         let live = exec(&engine, "SELECT id, name FROM migrate_me ORDER BY id").await;
-        assert_eq!(live.rows, vec![
-            vec!["1".to_string(), "before".to_string()],
-            vec!["2".to_string(), "after".to_string()],
-        ]);
+        assert_eq!(
+            live.rows,
+            vec![
+                vec!["1".to_string(), "before".to_string()],
+                vec!["2".to_string(), "after".to_string()],
+            ]
+        );
         engine.shutdown().await.unwrap();
     }
 
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory").await.unwrap();
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+            .await
+            .unwrap();
         let result = exec(&engine, "SELECT id, name FROM migrate_me ORDER BY id").await;
-        assert_eq!(result.rows, vec![
-            vec!["1".to_string(), "before".to_string()],
-            vec!["2".to_string(), "after".to_string()],
-        ]);
+        assert_eq!(
+            result.rows,
+            vec![
+                vec!["1".to_string(), "before".to_string()],
+                vec!["2".to_string(), "after".to_string()],
+            ]
+        );
         engine.shutdown().await.unwrap();
     }
 }

@@ -1,29 +1,65 @@
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
-use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::error::{HelionError, Result};
 use crate::storage::permissions::Permission;
-use crate::storage::types::{ColumnMeta, Row};
 use crate::storage::table::Table;
+use crate::storage::types::{ColumnMeta, Row};
 
 const WAL_FILE: &str = "helion.wal";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WalRecord {
-    CreateTable { name: String, columns: Vec<ColumnMeta> },
-    DropTable { name: String },
-    Insert { table: String, row: Row, txid: u64 },
-    Update { table: String, row_idx: usize, new_row: Row, txid: u64 },
-    Delete { table: String, row_idx: usize, txid: u64 },
-    Commit { txid: u64 },
-    Checkpoint { table_count: u32, tables: Vec<(String, Vec<ColumnMeta>, Vec<Vec<RowVersion>>)> },
-    CreateUser { username: String, password_hash: String },
-    DropUser { username: String },
-    Grant { username: String, table: String, permission: Permission },
-    Revoke { username: String, table: String, permission: Permission },
+    CreateTable {
+        name: String,
+        columns: Vec<ColumnMeta>,
+    },
+    DropTable {
+        name: String,
+    },
+    Insert {
+        table: String,
+        row: Row,
+        txid: u64,
+    },
+    Update {
+        table: String,
+        row_idx: usize,
+        new_row: Row,
+        txid: u64,
+    },
+    Delete {
+        table: String,
+        row_idx: usize,
+        txid: u64,
+    },
+    Commit {
+        txid: u64,
+    },
+    Checkpoint {
+        table_count: u32,
+        tables: Vec<(String, Vec<ColumnMeta>, Vec<Vec<RowVersion>>)>,
+    },
+    CreateUser {
+        username: String,
+        password_hash: String,
+    },
+    DropUser {
+        username: String,
+    },
+    Grant {
+        username: String,
+        table: String,
+        permission: Permission,
+    },
+    Revoke {
+        username: String,
+        table: String,
+        permission: Permission,
+    },
 }
 
 pub use crate::storage::table::RowVersion;
@@ -43,14 +79,16 @@ impl WalWriter {
             .append(true)
             .open(&path)
             .await
-            .map_err(|e| HelionError::Io(format!("Failed to open WAL '{}': {}", path.display(), e)))?;
+            .map_err(|e| {
+                HelionError::Io(format!("Failed to open WAL '{}': {}", path.display(), e))
+            })?;
         Ok(WalWriter { file, path })
     }
 
     /// Write a record to the WAL immediately (async).
     pub async fn append(&mut self, record: WalRecord) -> Result<()> {
-        let bytes = bincode::serialize(&record)
-            .map_err(|e| HelionError::Serialization(e.to_string()))?;
+        let bytes =
+            bincode::serialize(&record).map_err(|e| HelionError::Serialization(e.to_string()))?;
         let len = bytes.len() as u64;
         let checksum = crc32fast::hash(&bytes);
 
@@ -109,7 +147,11 @@ pub async fn replay_wal(data_dir: &Path) -> Result<Vec<Table>> {
         let record: WalRecord = match bincode::deserialize(data) {
             Ok(r) => r,
             Err(e) => {
-                warn!("WAL: deserialize error at offset {}: {}", offset - record_len - 4, e);
+                warn!(
+                    "WAL: deserialize error at offset {}: {}",
+                    offset - record_len - 4,
+                    e
+                );
                 continue;
             }
         };
@@ -136,10 +178,16 @@ fn apply_wal_record(tables: &mut Vec<Table>, record: WalRecord) {
                     warn!("WAL replay: skipping invalid row for '{}': {}", table, e);
                     return;
                 }
-                t.version_chains.push(vec![RowVersion::new_insert(txid, row)]);
+                t.version_chains
+                    .push(vec![RowVersion::new_insert(txid, row)]);
             }
         }
-        WalRecord::Update { table, row_idx, new_row, txid } => {
+        WalRecord::Update {
+            table,
+            row_idx,
+            new_row,
+            txid,
+        } => {
             if let Some(t) = tables.iter_mut().find(|t| t.name == table) {
                 if row_idx < t.version_chains.len() {
                     if let Some(old) = t.version_chains[row_idx].last_mut() {
@@ -149,10 +197,17 @@ fn apply_wal_record(tables: &mut Vec<Table>, record: WalRecord) {
                 }
             }
         }
-        WalRecord::Delete { table, row_idx, txid } => {
+        WalRecord::Delete {
+            table,
+            row_idx,
+            txid,
+        } => {
             if let Some(t) = tables.iter_mut().find(|t| t.name == table) {
                 if row_idx < t.version_chains.len() {
-                    let old_row = t.version_chains[row_idx].last().map(|v| v.row.clone()).unwrap();
+                    let old_row = t.version_chains[row_idx]
+                        .last()
+                        .map(|v| v.row.clone())
+                        .unwrap();
                     if let Some(old) = t.version_chains[row_idx].last_mut() {
                         old.txid_max = txid;
                     }
@@ -161,8 +216,12 @@ fn apply_wal_record(tables: &mut Vec<Table>, record: WalRecord) {
             }
         }
         WalRecord::Commit { .. } => {}
-        WalRecord::Checkpoint { tables: checkpoint_tables, .. } => {
-            *tables = checkpoint_tables.into_iter()
+        WalRecord::Checkpoint {
+            tables: checkpoint_tables,
+            ..
+        } => {
+            *tables = checkpoint_tables
+                .into_iter()
                 .map(|(name, columns, chains)| {
                     let mut t = Table::new(&name, columns);
                     t.version_chains = chains;
@@ -186,9 +245,9 @@ pub fn wal_path(data_dir: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
     use super::*;
     use crate::storage::types::*;
+    use std::collections::BTreeSet;
     use tempfile::TempDir;
 
     fn setup_test_dir() -> TempDir {
@@ -198,10 +257,13 @@ mod tests {
     #[test]
     fn test_apply_create_table() {
         let mut tables = Vec::new();
-        apply_wal_record(&mut tables, WalRecord::CreateTable {
-            name: "test".to_string(),
-            columns: vec![ColumnMeta::new("id", DataType::Integer)],
-        });
+        apply_wal_record(
+            &mut tables,
+            WalRecord::CreateTable {
+                name: "test".to_string(),
+                columns: vec![ColumnMeta::new("id", DataType::Integer)],
+            },
+        );
         assert_eq!(tables.len(), 1);
         assert_eq!(tables[0].name, "test");
     }
@@ -209,31 +271,53 @@ mod tests {
     #[test]
     fn test_apply_insert() {
         let mut tables = Vec::new();
-        apply_wal_record(&mut tables, WalRecord::CreateTable {
-            name: "test".to_string(),
-            columns: vec![ColumnMeta::new("id", DataType::Integer), ColumnMeta::new("name", DataType::Text)],
-        });
-        apply_wal_record(&mut tables, WalRecord::Insert {
-            table: "test".to_string(),
-            row: Row::new(vec![Datum::Integer(1), Datum::Text("Alice".into())]),
-            txid: 5,
-        });
+        apply_wal_record(
+            &mut tables,
+            WalRecord::CreateTable {
+                name: "test".to_string(),
+                columns: vec![
+                    ColumnMeta::new("id", DataType::Integer),
+                    ColumnMeta::new("name", DataType::Text),
+                ],
+            },
+        );
+        apply_wal_record(
+            &mut tables,
+            WalRecord::Insert {
+                table: "test".to_string(),
+                row: Row::new(vec![Datum::Integer(1), Datum::Text("Alice".into())]),
+                txid: 5,
+            },
+        );
         assert_eq!(tables[0].row_count(), 1);
     }
 
     #[test]
     fn test_apply_delete() {
         let mut tables = Vec::new();
-        apply_wal_record(&mut tables, WalRecord::CreateTable {
-            name: "test".to_string(),
-            columns: vec![ColumnMeta::new("id", DataType::Integer)],
-        });
-        apply_wal_record(&mut tables, WalRecord::Insert {
-            table: "test".to_string(),
-            row: Row::new(vec![Datum::Integer(1)]),
-            txid: 5,
-        });
-        apply_wal_record(&mut tables, WalRecord::Delete { table: "test".to_string(), row_idx: 0, txid: 10 });
+        apply_wal_record(
+            &mut tables,
+            WalRecord::CreateTable {
+                name: "test".to_string(),
+                columns: vec![ColumnMeta::new("id", DataType::Integer)],
+            },
+        );
+        apply_wal_record(
+            &mut tables,
+            WalRecord::Insert {
+                table: "test".to_string(),
+                row: Row::new(vec![Datum::Integer(1)]),
+                txid: 5,
+            },
+        );
+        apply_wal_record(
+            &mut tables,
+            WalRecord::Delete {
+                table: "test".to_string(),
+                row_idx: 0,
+                txid: 10,
+            },
+        );
         assert_eq!(tables[0].version_chains.len(), 1);
         assert_eq!(tables[0].version_chains[0].len(), 2);
     }
@@ -245,14 +329,21 @@ mod tests {
 
         wal.append(WalRecord::CreateTable {
             name: "users".to_string(),
-            columns: vec![ColumnMeta::new("id", DataType::Integer).primary_key(), ColumnMeta::new("name", DataType::Text)],
-        }).await.unwrap();
+            columns: vec![
+                ColumnMeta::new("id", DataType::Integer).primary_key(),
+                ColumnMeta::new("name", DataType::Text),
+            ],
+        })
+        .await
+        .unwrap();
 
         wal.append(WalRecord::Insert {
             table: "users".to_string(),
             row: Row::new(vec![Datum::Integer(1), Datum::Text("Alice".into())]),
             txid: 5,
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
         wal.flush().await.unwrap();
 
@@ -277,19 +368,32 @@ mod tests {
         wal.append(WalRecord::CreateTable {
             name: "users".to_string(),
             columns: vec![ColumnMeta::new("id", DataType::Integer)],
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
         wal.append(WalRecord::Insert {
             table: "users".to_string(),
             row: Row::new(vec![Datum::Integer(1)]),
             txid: 5,
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
-        let chains = vec![vec![RowVersion::new_insert(10, Row::new(vec![Datum::Integer(42)]))]];
+        let chains = vec![vec![RowVersion::new_insert(
+            10,
+            Row::new(vec![Datum::Integer(42)]),
+        )]];
         wal.append(WalRecord::Checkpoint {
             table_count: 1,
-            tables: vec![("users".to_string(), vec![ColumnMeta::new("id", DataType::Integer)], chains)],
-        }).await.unwrap();
+            tables: vec![(
+                "users".to_string(),
+                vec![ColumnMeta::new("id", DataType::Integer)],
+                chains,
+            )],
+        })
+        .await
+        .unwrap();
 
         wal.flush().await.unwrap();
 
@@ -308,11 +412,15 @@ mod tests {
         wal.append(WalRecord::CreateTable {
             name: "a".to_string(),
             columns: vec![ColumnMeta::new("id", DataType::Integer)],
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         wal.append(WalRecord::CreateTable {
             name: "b".to_string(),
             columns: vec![ColumnMeta::new("name", DataType::Text)],
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         wal.flush().await.unwrap();
 
         let tables = replay_wal(dir.path()).await.unwrap();
@@ -327,14 +435,18 @@ mod tests {
         wal.append(WalRecord::CreateTable {
             name: "t".to_string(),
             columns: vec![ColumnMeta::new("id", DataType::Integer)],
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
 
         for i in 0..10 {
             wal.append(WalRecord::Insert {
                 table: "t".to_string(),
                 row: Row::new(vec![Datum::Integer(i)]),
                 txid: i as u64 + 1,
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
         }
         wal.flush().await.unwrap();
 
@@ -350,7 +462,9 @@ mod tests {
         wal.append(WalRecord::CreateUser {
             username: "alice".to_string(),
             password_hash: "hash123".to_string(),
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         wal.flush().await.unwrap();
 
         let tables = replay_wal(dir.path()).await.unwrap();
@@ -368,7 +482,9 @@ mod tests {
             username: "alice".to_string(),
             table: "users".to_string(),
             permission: crate::storage::permissions::Permission::All,
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         wal.flush().await.unwrap();
 
         // Should not crash on replay
@@ -386,13 +502,21 @@ mod tests {
         wal.append(WalRecord::CreateTable {
             name: "test".to_string(),
             columns: vec![ColumnMeta::new("id", DataType::Integer)],
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         wal.flush().await.unwrap();
 
         // Append garbage to corrupt the WAL
         use tokio::io::AsyncWriteExt;
-        let mut f = tokio::fs::OpenOptions::new().append(true).open(&path).await.unwrap();
-        f.write_all(b"GARBAGE_DATA_THAT_WONT_DESERIALIZE").await.unwrap();
+        let mut f = tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .await
+            .unwrap();
+        f.write_all(b"GARBAGE_DATA_THAT_WONT_DESERIALIZE")
+            .await
+            .unwrap();
         f.flush().await.unwrap();
 
         // Replay should handle the corruption gracefully

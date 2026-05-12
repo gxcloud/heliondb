@@ -1,6 +1,6 @@
+use quinn::Connecting;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use quinn::Connecting;
 use tracing::{debug, error, info};
 
 use crate::error::{HelionError, Result};
@@ -16,7 +16,8 @@ pub async fn handle_connection(
     connecting: Connecting,
     engine: Arc<Mutex<DatabaseEngine>>,
 ) -> Result<()> {
-    let connection = connecting.await
+    let connection = connecting
+        .await
         .map_err(|e| HelionError::Protocol(format!("Connection failed: {}", e)))?;
 
     let remote = connection.remote_address();
@@ -88,7 +89,8 @@ async fn handle_stream(
             }
         };
 
-        let server_msg = process_authenticated_message(msg, engine, sessions, &token, &username).await;
+        let server_msg =
+            process_authenticated_message(msg, engine, sessions, &token, &username).await;
         send_server_message(send, &server_msg).await?;
     }
 
@@ -103,8 +105,14 @@ async fn process_authenticated_message(
     username: &str,
 ) -> ServerMessage {
     // Verify token
-    if sessions.verify_token(*token).map(|u| u != username).unwrap_or(true) {
-        return ServerMessage::Error { message: "Invalid session token".into() };
+    if sessions
+        .verify_token(*token)
+        .map(|u| u != username)
+        .unwrap_or(true)
+    {
+        return ServerMessage::Error {
+            message: "Invalid session token".into(),
+        };
     }
 
     match msg {
@@ -115,19 +123,23 @@ async fn process_authenticated_message(
                     rows: result.rows,
                     error: None,
                 },
-                Err(e) => ServerMessage::Error { message: e.to_string() },
+                Err(e) => ServerMessage::Error {
+                    message: e.to_string(),
+                },
             }
         }
-        ClientMessage::Execute { prepared_id, params, .. } => {
-            ServerMessage::QueryResult {
-                columns: vec!["prepared_id".to_string()],
-                rows: vec![vec![prepared_id.to_string()], params],
-                error: None,
-            }
-        }
-        ClientMessage::Auth { .. } => {
-            ServerMessage::Error { message: "Already authenticated".into() }
-        }
+        ClientMessage::Execute {
+            prepared_id,
+            params,
+            ..
+        } => ServerMessage::QueryResult {
+            columns: vec!["prepared_id".to_string()],
+            rows: vec![vec![prepared_id.to_string()], params],
+            error: None,
+        },
+        ClientMessage::Auth { .. } => ServerMessage::Error {
+            message: "Already authenticated".into(),
+        },
     }
 }
 
@@ -155,13 +167,15 @@ async fn read_client_message(
     recv: &mut quinn::RecvStream,
 ) -> Result<ClientMessage> {
     let mut len_buf = [0u8; 4];
-    recv.read_exact(&mut len_buf).await
+    recv.read_exact(&mut len_buf)
+        .await
         .map_err(|e| HelionError::Protocol(format!("Read length error: {}", e)))?;
     let msg_len = u32::from_be_bytes(len_buf) as usize;
 
     let mut buf = vec![0u8; msg_len];
     if msg_len > 0 {
-        recv.read_exact(&mut buf).await
+        recv.read_exact(&mut buf)
+            .await
             .map_err(|e| HelionError::Protocol(format!("Read message error: {}", e)))?;
     }
 
@@ -169,17 +183,17 @@ async fn read_client_message(
         .map_err(|e| HelionError::Protocol(format!("Deserialize error: {}", e)))
 }
 
-async fn read_client_message_raw(
-    recv: &mut quinn::RecvStream,
-) -> Result<ClientMessage> {
+async fn read_client_message_raw(recv: &mut quinn::RecvStream) -> Result<ClientMessage> {
     let mut len_buf = [0u8; 4];
-    recv.read_exact(&mut len_buf).await
+    recv.read_exact(&mut len_buf)
+        .await
         .map_err(|e| HelionError::Protocol(format!("Read length error: {}", e)))?;
     let msg_len = u32::from_be_bytes(len_buf) as usize;
 
     let mut buf = vec![0u8; msg_len];
     if msg_len > 0 {
-        recv.read_exact(&mut buf).await
+        recv.read_exact(&mut buf)
+            .await
             .map_err(|e| HelionError::Protocol(format!("Read message error: {}", e)))?;
     }
 
@@ -193,25 +207,30 @@ async fn send_auth_response(
     token: u64,
     error: Option<String>,
 ) -> Result<()> {
-    let msg = ServerMessage::AuthResult { success, token, error };
+    let msg = ServerMessage::AuthResult {
+        success,
+        token,
+        error,
+    };
     send_server_message(send, &msg).await
 }
 
 async fn send_error(send: &mut quinn::SendStream, message: &str) -> Result<()> {
-    let msg = ServerMessage::Error { message: message.to_string() };
+    let msg = ServerMessage::Error {
+        message: message.to_string(),
+    };
     send_server_message(send, &msg).await
 }
 
-async fn send_server_message(
-    send: &mut quinn::SendStream,
-    msg: &ServerMessage,
-) -> Result<()> {
+async fn send_server_message(send: &mut quinn::SendStream, msg: &ServerMessage) -> Result<()> {
     let bytes = bincode::serialize(msg)
         .map_err(|e| HelionError::Protocol(format!("Serialize error: {}", e)))?;
     let len = bytes.len() as u32;
-    send.write_all(&len.to_be_bytes()).await
+    send.write_all(&len.to_be_bytes())
+        .await
         .map_err(|e| HelionError::Protocol(format!("Write error: {}", e)))?;
-    send.write_all(&bytes).await
+    send.write_all(&bytes)
+        .await
         .map_err(|e| HelionError::Protocol(format!("Write error: {}", e)))?;
     let _ = send.finish();
     Ok(())

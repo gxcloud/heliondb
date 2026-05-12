@@ -61,11 +61,7 @@ pub trait StorageEngine: Send + Sync {
     async fn row_count(&self, table: &str) -> Result<usize>;
 
     /// Atomically apply a batch of version chain changes (called by MVCC commit).
-    async fn apply_write_set(
-        &self,
-        table: &str,
-        changes: Vec<(usize, RowVersion)>,
-    ) -> Result<()>;
+    async fn apply_write_set(&self, table: &str, changes: Vec<(usize, RowVersion)>) -> Result<()>;
 
     /// Take a full snapshot of a table (all data, all version chains).
     async fn snapshot_table(&self, table: &str) -> Result<Table>;

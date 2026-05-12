@@ -62,8 +62,8 @@ impl DiskEngine {
         fs::create_dir_all(&dir).await?;
         let tmp_path = dir.join(format!("{}.tmp", SNAPSHOT_FILE));
         let final_path = dir.join(SNAPSHOT_FILE);
-        let bytes = bincode::serialize(table)
-            .map_err(|e| HelionError::Serialization(e.to_string()))?;
+        let bytes =
+            bincode::serialize(table).map_err(|e| HelionError::Serialization(e.to_string()))?;
         fs::write(&tmp_path, &bytes).await?;
         fs::rename(&tmp_path, &final_path).await?;
         Ok(())
@@ -88,7 +88,9 @@ impl StorageEngine for DiskEngine {
         {
             let tables = self.tables.read();
             if tables.contains_key(&_meta.name) {
-                return Err(crate::error::HelionError::TableAlreadyExists(_meta.name.clone()));
+                return Err(crate::error::HelionError::TableAlreadyExists(
+                    _meta.name.clone(),
+                ));
             }
         }
 
@@ -97,7 +99,9 @@ impl StorageEngine for DiskEngine {
 
         let mut tables = self.tables.write();
         if tables.contains_key(&_meta.name) {
-            return Err(crate::error::HelionError::TableAlreadyExists(_meta.name.clone()));
+            return Err(crate::error::HelionError::TableAlreadyExists(
+                _meta.name.clone(),
+            ));
         }
         tables.insert(_meta.name.clone(), table);
         Ok(())
@@ -121,9 +125,10 @@ impl StorageEngine for DiskEngine {
 
     async fn get_table(&self, name: &str) -> Result<Table> {
         let tables = self.tables.read();
-        tables.get(name).cloned().ok_or_else(|| {
-            crate::error::HelionError::TableNotFound(name.to_string())
-        })
+        tables
+            .get(name)
+            .cloned()
+            .ok_or_else(|| crate::error::HelionError::TableNotFound(name.to_string()))
     }
 
     async fn scan_visible(
@@ -133,9 +138,9 @@ impl StorageEngine for DiskEngine {
         active_txns: &BTreeSet<u64>,
     ) -> Result<Vec<(usize, Row)>> {
         let tables = self.tables.read();
-        let t = tables.get(table).ok_or_else(|| {
-            crate::error::HelionError::TableNotFound(table.to_string())
-        })?;
+        let t = tables
+            .get(table)
+            .ok_or_else(|| crate::error::HelionError::TableNotFound(table.to_string()))?;
         Ok(t.scan_visible(snapshot_txid, active_txns)
             .into_iter()
             .map(|(idx, row)| (idx, row.clone()))
@@ -144,20 +149,18 @@ impl StorageEngine for DiskEngine {
 
     async fn row_count(&self, table: &str) -> Result<usize> {
         let tables = self.tables.read();
-        tables.get(table).map(|t| t.row_count())
+        tables
+            .get(table)
+            .map(|t| t.row_count())
             .ok_or_else(|| crate::error::HelionError::TableNotFound(table.to_string()))
     }
 
-    async fn apply_write_set(
-        &self,
-        table: &str,
-        changes: Vec<(usize, RowVersion)>,
-    ) -> Result<()> {
+    async fn apply_write_set(&self, table: &str, changes: Vec<(usize, RowVersion)>) -> Result<()> {
         let snapshot = {
             let mut tables = self.tables.write();
-            let t = tables.get_mut(table).ok_or_else(|| {
-                crate::error::HelionError::TableNotFound(table.to_string())
-            })?;
+            let t = tables
+                .get_mut(table)
+                .ok_or_else(|| crate::error::HelionError::TableNotFound(table.to_string()))?;
 
             for (row_idx, version) in changes {
                 if row_idx < t.version_chains.len() {
@@ -177,7 +180,9 @@ impl StorageEngine for DiskEngine {
 
     async fn snapshot_table(&self, table: &str) -> Result<Table> {
         let tables = self.tables.read();
-        tables.get(table).cloned()
+        tables
+            .get(table)
+            .cloned()
             .ok_or_else(|| crate::error::HelionError::TableNotFound(table.to_string()))
     }
 

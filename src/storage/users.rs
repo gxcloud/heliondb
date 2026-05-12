@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
 use rand::rngs::OsRng;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{HelionError, Result};
 
@@ -68,20 +68,29 @@ impl UserStore {
     }
 
     pub fn get_user(&self, username: &str) -> Option<&User> {
-        self.users.iter().find(|u| u.username.eq_ignore_ascii_case(username))
+        self.users
+            .iter()
+            .find(|u| u.username.eq_ignore_ascii_case(username))
     }
 
     pub fn get_user_mut(&mut self, username: &str) -> Option<&mut User> {
-        self.users.iter_mut().find(|u| u.username.eq_ignore_ascii_case(username))
+        self.users
+            .iter_mut()
+            .find(|u| u.username.eq_ignore_ascii_case(username))
     }
 
     pub fn user_exists(&self, username: &str) -> bool {
-        self.users.iter().any(|u| u.username.eq_ignore_ascii_case(username))
+        self.users
+            .iter()
+            .any(|u| u.username.eq_ignore_ascii_case(username))
     }
 
     pub fn create_user(&mut self, username: &str, password: &str) -> Result<()> {
         if self.user_exists(username) {
-            return Err(HelionError::Internal(format!("User '{}' already exists", username)));
+            return Err(HelionError::Internal(format!(
+                "User '{}' already exists",
+                username
+            )));
         }
         let user = User::new(username, password)?;
         self.users.push(user);
@@ -90,7 +99,10 @@ impl UserStore {
 
     pub fn insert_user(&mut self, user: User) -> Result<()> {
         if self.user_exists(&user.username) {
-            return Err(HelionError::Internal(format!("User '{}' already exists", user.username)));
+            return Err(HelionError::Internal(format!(
+                "User '{}' already exists",
+                user.username
+            )));
         }
         self.users.push(user);
         Ok(())
@@ -98,15 +110,20 @@ impl UserStore {
 
     pub fn drop_user(&mut self, username: &str) -> Result<()> {
         let initial_len = self.users.len();
-        self.users.retain(|u| !u.username.eq_ignore_ascii_case(username));
+        self.users
+            .retain(|u| !u.username.eq_ignore_ascii_case(username));
         if self.users.len() == initial_len {
-            return Err(HelionError::Internal(format!("User '{}' not found", username)));
+            return Err(HelionError::Internal(format!(
+                "User '{}' not found",
+                username
+            )));
         }
         Ok(())
     }
 
     pub fn update_password(&mut self, username: &str, new_password: &str) -> Result<()> {
-        let user = self.get_user_mut(username)
+        let user = self
+            .get_user_mut(username)
             .ok_or_else(|| HelionError::Internal(format!("User '{}' not found", username)))?;
         user.set_password(new_password)
     }

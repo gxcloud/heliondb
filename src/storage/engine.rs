@@ -61,8 +61,14 @@ async fn replay_users_from_wal(data_dir: &Path) -> Result<UserStore> {
 
         if let Ok(record) = bincode::deserialize::<WalRecord>(data) {
             match record {
-                WalRecord::CreateUser { username, password_hash } => {
-                    let _ = store.insert_user(User { username, password_hash });
+                WalRecord::CreateUser {
+                    username,
+                    password_hash,
+                } => {
+                    let _ = store.insert_user(User {
+                        username,
+                        password_hash,
+                    });
                 }
                 WalRecord::DropUser { username } => {
                     let _ = store.drop_user(&username);
@@ -102,10 +108,18 @@ async fn replay_permissions_from_wal(data_dir: &Path) -> Result<PermissionStore>
 
         if let Ok(record) = bincode::deserialize::<WalRecord>(data) {
             match record {
-                WalRecord::Grant { username, table, permission } => {
+                WalRecord::Grant {
+                    username,
+                    table,
+                    permission,
+                } => {
                     store.grant(&username, &table, permission);
                 }
-                WalRecord::Revoke { username, table, permission } => {
+                WalRecord::Revoke {
+                    username,
+                    table,
+                    permission,
+                } => {
                     store.revoke(&username, &table, &permission);
                 }
                 _ => {}
@@ -139,7 +153,11 @@ impl DatabaseEngine {
 
         let tables = replay_wal(data_dir).await?;
         let max_txid = compute_max_txid(&tables);
-        info!("Replayed WAL: {} tables restored (max txid: {:?})", tables.len(), max_txid);
+        info!(
+            "Replayed WAL: {} tables restored (max txid: {:?})",
+            tables.len(),
+            max_txid
+        );
 
         let catalog = Catalog::open(data_dir, default_engine).await?;
         let users = replay_users_from_wal(data_dir).await?;
@@ -240,27 +258,43 @@ impl DatabaseEngine {
         if let Err(conflicting_tx) = self.mvcc.check_conflicts(tx, &tables_snapshot) {
             self.mvcc.rollback_transaction(tx);
             tx.status = TransactionStatus::Aborted;
-            debug!("Transaction {} aborted (conflict with {})", tx.tx_id, conflicting_tx);
+            debug!(
+                "Transaction {} aborted (conflict with {})",
+                tx.tx_id, conflicting_tx
+            );
             return Err(HelionError::Conflict(tx.tx_id));
         }
 
         let changes = MvccStore::apply_write_set(&tx.write_set, &tables_snapshot, tx.tx_id);
 
-        let mut engine_changes: HashMap<String, Vec<(usize, crate::storage::table::RowVersion)>> = HashMap::new();
+        let mut engine_changes: HashMap<String, Vec<(usize, crate::storage::table::RowVersion)>> =
+            HashMap::new();
         for entry in &tx.write_set {
             let change_list = engine_changes.entry(entry.table_name.clone()).or_default();
             match &entry.operation {
                 WriteOp::Insert(row) => {
-                    change_list.push((entry.row_idx, crate::storage::table::RowVersion::new_insert(tx.tx_id, row.clone())));
+                    change_list.push((
+                        entry.row_idx,
+                        crate::storage::table::RowVersion::new_insert(tx.tx_id, row.clone()),
+                    ));
                 }
                 WriteOp::Update(row) => {
-                    change_list.push((entry.row_idx, crate::storage::table::RowVersion::new_update(tx.tx_id, row.clone())));
+                    change_list.push((
+                        entry.row_idx,
+                        crate::storage::table::RowVersion::new_update(tx.tx_id, row.clone()),
+                    ));
                 }
                 WriteOp::Delete => {
                     if let Some(table) = tables_snapshot.get(&entry.table_name) {
                         if entry.row_idx < table.version_chains.len() {
                             if let Some(latest) = table.version_chains[entry.row_idx].last() {
-                                change_list.push((entry.row_idx, crate::storage::table::RowVersion::new_delete(tx.tx_id, latest.row.clone())));
+                                change_list.push((
+                                    entry.row_idx,
+                                    crate::storage::table::RowVersion::new_delete(
+                                        tx.tx_id,
+                                        latest.row.clone(),
+                                    ),
+                                ));
                             }
                         }
                     }
@@ -295,7 +329,8 @@ impl DatabaseEngine {
                             table: entry.table_name.clone(),
                             row: row.clone(),
                             txid: tx.tx_id,
-                        }).await?;
+                        })
+                        .await?;
                     }
                     WriteOp::Update(new_row) => {
                         wal.append(WalRecord::Update {
@@ -303,14 +338,16 @@ impl DatabaseEngine {
                             row_idx: entry.row_idx,
                             new_row: new_row.clone(),
                             txid: tx.tx_id,
-                        }).await?;
+                        })
+                        .await?;
                     }
                     WriteOp::Delete => {
                         wal.append(WalRecord::Delete {
                             table: entry.table_name.clone(),
                             row_idx: entry.row_idx,
                             txid: tx.tx_id,
-                        }).await?;
+                        })
+                        .await?;
                     }
                 }
             }
@@ -361,7 +398,12 @@ impl DatabaseEngine {
         self.tables.read().await.clone()
     }
 
-    pub async fn create_table(&self, name: &str, columns: Vec<ColumnMeta>, engine_name: Option<&str>) -> Result<()> {
+    pub async fn create_table(
+        &self,
+        name: &str,
+        columns: Vec<ColumnMeta>,
+        engine_name: Option<&str>,
+    ) -> Result<()> {
         {
             let tables = self.tables.read().await;
             if tables.iter().any(|t| t.name.eq_ignore_ascii_case(name)) {
@@ -369,20 +411,33 @@ impl DatabaseEngine {
             }
         }
 
-        let engine_name = engine_name.map(normalize_engine_name).unwrap_or_else(|| self.catalog.default_engine());
-        self.catalog.create_table(name, columns.clone(), Some(&engine_name)).await?;
+        let engine_name = engine_name
+            .map(normalize_engine_name)
+            .unwrap_or_else(|| self.catalog.default_engine());
+        self.catalog
+            .create_table(name, columns.clone(), Some(&engine_name))
+            .await?;
 
         {
             let mut tables = self.tables.write().await;
             tables.push(Table::new(name, columns.clone()));
         }
 
-        if let Err(err) = self.wal_writer.lock().await.append(WalRecord::CreateTable {
-            name: name.to_string(),
-            columns,
-        }).await {
+        if let Err(err) = self
+            .wal_writer
+            .lock()
+            .await
+            .append(WalRecord::CreateTable {
+                name: name.to_string(),
+                columns,
+            })
+            .await
+        {
             let _ = self.catalog.drop_table(name).await;
-            self.tables.write().await.retain(|t| !t.name.eq_ignore_ascii_case(name));
+            self.tables
+                .write()
+                .await
+                .retain(|t| !t.name.eq_ignore_ascii_case(name));
             return Err(err);
         }
 
@@ -393,8 +448,12 @@ impl DatabaseEngine {
     pub async fn drop_table(&self, name: &str) -> Result<()> {
         let snapshot = {
             let tables = self.tables.read().await;
-            tables.iter().find(|t| t.name.eq_ignore_ascii_case(name)).cloned()
-        }.ok_or_else(|| HelionError::TableNotFound(name.to_string()))?;
+            tables
+                .iter()
+                .find(|t| t.name.eq_ignore_ascii_case(name))
+                .cloned()
+        }
+        .ok_or_else(|| HelionError::TableNotFound(name.to_string()))?;
 
         let engine_name = self
             .catalog
@@ -402,12 +461,24 @@ impl DatabaseEngine {
             .unwrap_or_else(|| self.catalog.default_engine());
 
         self.catalog.drop_table(name).await?;
-        self.tables.write().await.retain(|t| !t.name.eq_ignore_ascii_case(name));
+        self.tables
+            .write()
+            .await
+            .retain(|t| !t.name.eq_ignore_ascii_case(name));
 
-        if let Err(err) = self.wal_writer.lock().await.append(WalRecord::DropTable {
-            name: name.to_string(),
-        }).await {
-            let _ = self.catalog.create_table(&snapshot.name, snapshot.columns.clone(), Some(&engine_name)).await;
+        if let Err(err) = self
+            .wal_writer
+            .lock()
+            .await
+            .append(WalRecord::DropTable {
+                name: name.to_string(),
+            })
+            .await
+        {
+            let _ = self
+                .catalog
+                .create_table(&snapshot.name, snapshot.columns.clone(), Some(&engine_name))
+                .await;
             let _ = self.catalog.restore_table(snapshot.clone()).await;
             self.tables.write().await.push(snapshot);
             return Err(err);
@@ -425,18 +496,26 @@ impl DatabaseEngine {
         let mut users = self.users.write().await;
         users.create_user(username, password)?;
         let user = users.get_user(username).unwrap().clone();
-        self.wal_writer.lock().await.append(WalRecord::CreateUser {
-            username: user.username,
-            password_hash: user.password_hash,
-        }).await?;
+        self.wal_writer
+            .lock()
+            .await
+            .append(WalRecord::CreateUser {
+                username: user.username,
+                password_hash: user.password_hash,
+            })
+            .await?;
         Ok(())
     }
 
     pub async fn drop_user(&self, username: &str) -> Result<()> {
         self.users.write().await.drop_user(username)?;
-        self.wal_writer.lock().await.append(WalRecord::DropUser {
-            username: username.to_string(),
-        }).await?;
+        self.wal_writer
+            .lock()
+            .await
+            .append(WalRecord::DropUser {
+                username: username.to_string(),
+            })
+            .await?;
         self.permissions.write().await.remove_user(username);
         Ok(())
     }
@@ -445,10 +524,14 @@ impl DatabaseEngine {
         let mut users = self.users.write().await;
         users.update_password(username, new_password)?;
         let user = users.get_user(username).unwrap().clone();
-        self.wal_writer.lock().await.append(WalRecord::CreateUser {
-            username: user.username,
-            password_hash: user.password_hash,
-        }).await?;
+        self.wal_writer
+            .lock()
+            .await
+            .append(WalRecord::CreateUser {
+                username: user.username,
+                password_hash: user.password_hash,
+            })
+            .await?;
         Ok(())
     }
 
@@ -465,16 +548,27 @@ impl DatabaseEngine {
     }
 
     pub async fn has_permission(&self, username: &str, table: &str, columns: &[&str]) -> bool {
-        self.permissions.read().await.can_select(username, table, columns)
+        self.permissions
+            .read()
+            .await
+            .can_select(username, table, columns)
     }
 
     pub async fn get_users(&self) -> Vec<User> {
         self.users.read().await.all_users().to_vec()
     }
 
-    pub async fn grant_permission(&self, username: &str, table: &str, permission: Permission) -> Result<()> {
+    pub async fn grant_permission(
+        &self,
+        username: &str,
+        table: &str,
+        permission: Permission,
+    ) -> Result<()> {
         if !self.user_exists(username).await {
-            return Err(HelionError::Auth(format!("User '{}' does not exist", username)));
+            return Err(HelionError::Auth(format!(
+                "User '{}' does not exist",
+                username
+            )));
         }
         let tables = self.tables.read().await;
         if !tables.iter().any(|t| t.name.eq_ignore_ascii_case(table)) {
@@ -482,27 +576,51 @@ impl DatabaseEngine {
         }
         drop(tables);
 
-        self.permissions.write().await.grant(username, table, permission.clone());
-        self.wal_writer.lock().await.append(WalRecord::Grant {
-            username: username.to_string(),
-            table: table.to_string(),
-            permission,
-        }).await?;
+        self.permissions
+            .write()
+            .await
+            .grant(username, table, permission.clone());
+        self.wal_writer
+            .lock()
+            .await
+            .append(WalRecord::Grant {
+                username: username.to_string(),
+                table: table.to_string(),
+                permission,
+            })
+            .await?;
         Ok(())
     }
 
-    pub async fn revoke_permission(&self, username: &str, table: &str, permission: &Permission) -> Result<()> {
-        self.permissions.write().await.revoke(username, table, permission);
-        self.wal_writer.lock().await.append(WalRecord::Revoke {
-            username: username.to_string(),
-            table: table.to_string(),
-            permission: permission.clone(),
-        }).await?;
+    pub async fn revoke_permission(
+        &self,
+        username: &str,
+        table: &str,
+        permission: &Permission,
+    ) -> Result<()> {
+        self.permissions
+            .write()
+            .await
+            .revoke(username, table, permission);
+        self.wal_writer
+            .lock()
+            .await
+            .append(WalRecord::Revoke {
+                username: username.to_string(),
+                table: table.to_string(),
+                permission: permission.clone(),
+            })
+            .await?;
         Ok(())
     }
 
     pub async fn check_select(&self, username: &str, table: &str, columns: &[&str]) -> Result<()> {
-        if self.permissions.read().await.can_select(username, table, columns) {
+        if self
+            .permissions
+            .read()
+            .await
+            .can_select(username, table, columns)
+        {
             Ok(())
         } else {
             Err(HelionError::PermissionDenied(format!(
@@ -513,7 +631,12 @@ impl DatabaseEngine {
     }
 
     pub async fn check_insert(&self, username: &str, table: &str, columns: &[&str]) -> Result<()> {
-        if self.permissions.read().await.can_insert(username, table, columns) {
+        if self
+            .permissions
+            .read()
+            .await
+            .can_insert(username, table, columns)
+        {
             Ok(())
         } else {
             Err(HelionError::PermissionDenied(format!(
@@ -524,7 +647,12 @@ impl DatabaseEngine {
     }
 
     pub async fn check_update(&self, username: &str, table: &str, columns: &[&str]) -> Result<()> {
-        if self.permissions.read().await.can_update(username, table, columns) {
+        if self
+            .permissions
+            .read()
+            .await
+            .can_update(username, table, columns)
+        {
             Ok(())
         } else {
             Err(HelionError::PermissionDenied(format!(
@@ -570,14 +698,28 @@ mod tests {
     #[tokio::test]
     async fn test_create_table() {
         let (engine, _dir) = setup_engine().await;
-        engine.create_table("users", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
+        engine
+            .create_table(
+                "users",
+                vec![ColumnMeta::new("id", DataType::Integer)],
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(engine.get_tables().await.len(), 1);
     }
 
     #[tokio::test]
     async fn test_drop_table() {
         let (engine, _dir) = setup_engine().await;
-        engine.create_table("users", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
+        engine
+            .create_table(
+                "users",
+                vec![ColumnMeta::new("id", DataType::Integer)],
+                None,
+            )
+            .await
+            .unwrap();
         engine.drop_table("users").await.unwrap();
         assert!(engine.get_tables().await.is_empty());
     }
@@ -587,16 +729,26 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         {
             let engine = DatabaseEngine::open(dir.path()).await.unwrap();
-            engine.create_table("users", vec![ColumnMeta::new("id", DataType::Integer)], None).await.unwrap();
-            engine.with_write_txn(|_tx, tables| {
-                let table = tables.iter().find(|t| t.name == "users").unwrap();
-                Ok(vec![WriteEntry {
-                    table_name: "users".to_string(),
-                    row_idx: table.row_count(),
-                    old_txid_max: u64::MAX,
-                    operation: WriteOp::Insert(Row::new(vec![Datum::Integer(1)])),
-                }])
-            }).await.unwrap();
+            engine
+                .create_table(
+                    "users",
+                    vec![ColumnMeta::new("id", DataType::Integer)],
+                    None,
+                )
+                .await
+                .unwrap();
+            engine
+                .with_write_txn(|_tx, tables| {
+                    let table = tables.iter().find(|t| t.name == "users").unwrap();
+                    Ok(vec![WriteEntry {
+                        table_name: "users".to_string(),
+                        row_idx: table.row_count(),
+                        old_txid_max: u64::MAX,
+                        operation: WriteOp::Insert(Row::new(vec![Datum::Integer(1)])),
+                    }])
+                })
+                .await
+                .unwrap();
         }
 
         let engine = DatabaseEngine::open(dir.path()).await.unwrap();
@@ -606,8 +758,18 @@ mod tests {
     #[tokio::test]
     async fn test_alter_table_engine() {
         let (engine, _dir) = setup_engine().await;
-        engine.create_table("items", vec![ColumnMeta::new("id", DataType::Integer)], Some("memory")).await.unwrap();
+        engine
+            .create_table(
+                "items",
+                vec![ColumnMeta::new("id", DataType::Integer)],
+                Some("memory"),
+            )
+            .await
+            .unwrap();
         engine.alter_table_engine("items", "disk").await.unwrap();
-        assert_eq!(engine.catalog.table_engine_name("items"), Some("disk".to_string()));
+        assert_eq!(
+            engine.catalog.table_engine_name("items"),
+            Some("disk".to_string())
+        );
     }
 }
