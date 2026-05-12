@@ -2,7 +2,7 @@
 
 ## Overview
 
-HelionDB is an in-memory SQL database with PostgreSQL-compatible syntax, MVCC concurrency control, async WAL persistence, and QUIC transport. The architecture follows a layered design with clear separation of concerns.
+HelionDB is a SQL database with PostgreSQL-compatible syntax, MVCC concurrency control, async WAL persistence, pluggable storage engines, and QUIC transport. The architecture follows a layered design with clear separation of concerns.
 
 ```
                     ┌─────────────────────┐
@@ -37,6 +37,15 @@ HelionDB is an in-memory SQL database with PostgreSQL-compatible syntax, MVCC co
 ```
 
 ## Layer 1: Storage Engine
+
+### Engine Routing
+
+**Files**: `src/storage/catalog.rs`, `src/storage/engine_trait.rs`, `src/storage/engines/*`
+
+- The catalog stores table-to-engine metadata plus the database default engine.
+- `memory` keeps tables in RAM.
+- `disk` stores each table under its own directory on disk.
+- `ALTER TABLE ... ENGINE = ...` migrates a table by snapshotting, restoring, and atomically switching the catalog entry.
 
 ### MVCC (Multi-Version Concurrency Control)
 
@@ -87,7 +96,7 @@ A background task runs every 60 seconds (configurable) and writes a `Checkpoint`
 **File**: `src/sql/parser.rs`
 
 - **Primary**: Uses `sqlparser-rs` with `PostgreSqlDialect` for standard SQL.
-- **Custom Fallback**: For non-standard statements (`CREATE USER`, `GRANT`, etc.), a custom parser handles the dialect.
+- **Custom Fallback**: For non-standard statements (`CREATE USER`, `GRANT`, `CREATE TABLE ... ENGINE`, `ALTER TABLE ... ENGINE`, etc.), a custom parser handles the dialect.
 - **AST**: Parsed statements are converted to `HelionStatement` enum variants.
 - **Expressions**: Full expression tree with `BinaryOp`, `UnaryOp`, `Literal`, `Column`, `Function`, `IsNull`, `IsNotNull`, `In`, `Between`, `Like`.
 
@@ -116,7 +125,7 @@ A background task runs every 60 seconds (configurable) and writes a `Checkpoint`
 
 - **`execute(engine, plan)`**: Executes a plan without permission checks (embedded library use).
 - **`execute_as(engine, plan, current_user)`**: Executes with column-level permission checks.
-- Operations: `CREATE TABLE`, `DROP TABLE`, `INSERT`, `SELECT` (with WHERE/ORDER BY/LIMIT/OFFSET), `UPDATE`, `DELETE`
+- Operations: `CREATE TABLE`, `DROP TABLE`, `ALTER TABLE ... ENGINE`, `INSERT`, `SELECT` (with WHERE/ORDER BY/LIMIT/OFFSET), `UPDATE`, `DELETE`
 - User operations: `CREATE USER`, `DROP USER`, `ALTER USER`, `GRANT`, `REVOKE`
 
 ## Layer 4: Server & Protocol
@@ -215,7 +224,12 @@ src/
 │   ├── mvcc.rs                # Transaction management, OCC
 │   ├── wal.rs                 # Write-ahead log
 │   ├── checkpoint.rs          # Periodic snapshots
+│   ├── engine_trait.rs        # StorageEngine trait + table metadata
+│   ├── catalog.rs              # Table routing, default engine, migration
 │   ├── engine.rs              # Database engine orchestrator
+│   ├── engines/
+│   │   ├── memory.rs           # RAM engine
+│   │   └── disk.rs             # Per-table disk engine
 │   ├── users.rs               # User management + password hashing
 │   └── permissions.rs         # Column-level permission system
 ├── sql/

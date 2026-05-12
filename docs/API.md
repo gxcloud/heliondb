@@ -14,12 +14,12 @@ tokio = { version = "1", features = ["full"] }
 
 ### `DatabaseEngine`
 
-The central database engine. Create via `DatabaseEngine::open()`.
+The central database engine. Create via `DatabaseEngine::open()` or `DatabaseEngine::open_with_default_engine()`.
 
 ```rust
 use heliondb::storage::engine::DatabaseEngine;
 
-let mut engine = DatabaseEngine::open("./mydb".as_ref()).await?;
+let mut engine = DatabaseEngine::open_with_default_engine("./mydb".as_ref(), "memory").await?;
 ```
 
 **Methods:**
@@ -27,13 +27,15 @@ let mut engine = DatabaseEngine::open("./mydb".as_ref()).await?;
 | Method | Description |
 |--------|-------------|
 | `open(data_dir)` | Open or create database, replay WAL |
+| `open_with_default_engine(data_dir, engine)` | Open with a default table engine |
 | `begin()` | Start a new MVCC transaction |
 | `commit(tx)` | Commit a transaction (conflict detection + WAL) |
 | `rollback(tx)` | Rollback a transaction |
 | `with_read_txn(f)` | Execute read-only closure in a transaction |
 | `with_write_txn(f)` | Execute write closure in a transaction |
 | `get_tables()` | Get snapshot of all tables |
-| `create_table(name, columns)` | Create a new table |
+| `create_table(name, columns, engine)` | Create a new table |
+| `alter_table_engine(name, engine)` | Migrate a table to another engine |
 | `drop_table(name)` | Drop a table |
 | `create_user(username, password)` | Create a new database user |
 | `drop_user(username)` | Drop a user |
@@ -164,8 +166,9 @@ let logical_plan = plan(&stmts[0], &engine.get_tables().await)?;
 
 ### Supported Statements
 
-- `CREATE TABLE name (col TYPE [PRIMARY KEY] [NOT NULL] [UNIQUE], ...)`
+- `CREATE TABLE name (col TYPE [PRIMARY KEY] [NOT NULL] [UNIQUE], ...) [ENGINE = memory|disk]`
 - `DROP TABLE [IF EXISTS] name`
+- `ALTER TABLE name ENGINE = memory|disk`
 - `INSERT INTO name [(cols)] VALUES (vals), ...`
 - `SELECT [cols|*] FROM name [WHERE expr] [ORDER BY col [ASC|DESC]] [LIMIT n] [OFFSET n]`
 - `UPDATE name SET col = val [, ...] [WHERE expr]`
@@ -259,10 +262,10 @@ use heliondb::executor::ops::{execute, execute_as};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut engine = DatabaseEngine::open("./exampledb".as_ref()).await?;
+    let mut engine = DatabaseEngine::open_with_default_engine("./exampledb".as_ref(), "memory").await?;
 
     // Create table
-    let s = &parse("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)")?;
+    let s = &parse("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT) ENGINE = disk")?;
     execute(&engine, &plan(&s[0], &[])?).await?;
 
     // Create user + grant permissions

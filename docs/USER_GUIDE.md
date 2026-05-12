@@ -26,6 +26,9 @@ The binary will be at `./target/release/heliondb`.
 
 # Run with custom data directory and listen address
 ./target/release/heliondb --data-dir /var/lib/heliondb --listen 0.0.0.0:9613
+
+# Set the default engine for new tables
+./target/release/heliondb --default-engine disk
 ```
 
 ### First Run
@@ -61,6 +64,7 @@ Options:
       --listen <ADDR>            QUIC listen address [default: 127.0.0.1:9613]
       --cert <PATH>              TLS certificate file (PEM)
       --key <PATH>               TLS private key file (PEM)
+      --default-engine <ENGINE>  memory | disk [default: memory]
       --durability <MODE>        sync | async [default: async]
       --checkpoint-interval <S>  Seconds between checkpoints [default: 60]
   -h, --help                     Print help
@@ -94,14 +98,18 @@ use heliondb::executor::ops::{execute, execute_as};
 use heliondb::sql::parser::parse;
 use heliondb::sql::planner::plan;
 
-let mut engine = DatabaseEngine::open("./db".as_ref()).await?;
+let mut engine = DatabaseEngine::open_with_default_engine("./db".as_ref(), "memory").await?;
 
 // Authenticate
 assert!(engine.verify_user("helion", "my_secure_password").await);
 
 // Execute queries (no permission check for embedded use)
-let s = &parse("CREATE TABLE items (id INTEGER, name TEXT)")?;
+let s = &parse("CREATE TABLE items (id INTEGER, name TEXT) ENGINE = disk")?;
 execute(&engine, &plan(&s[0], &[])?).await?;
+
+let s = &parse("ALTER TABLE items ENGINE = memory")?;
+let tables = engine.get_tables().await;
+execute(&engine, &plan(&s[0], &tables)?).await?;
 ```
 
 ### Using a Generic QUIC Client
@@ -120,10 +128,15 @@ CREATE TABLE users (
     email VARCHAR(255),
     age INTEGER DEFAULT 0
 );
+CREATE TABLE archive_users (id INTEGER, name TEXT) ENGINE = disk;
 
 -- Drop table
 DROP TABLE users;
 DROP TABLE IF EXISTS users;
+
+-- Change engine
+ALTER TABLE users ENGINE = memory;
+ALTER TABLE archive_users ENGINE = disk;
 ```
 
 ### Data Manipulation
@@ -240,7 +253,7 @@ Implicit conversions between numeric types and between string types are automati
 
 ## Backup and Restore
 
-HelionDB's data directory contains the WAL file (`helion.wal`). To back up:
+HelionDB's data directory contains the WAL file (`helion.wal`), the catalog, and any disk-engine table directories. To back up:
 
 ```bash
 # Graceful shutdown first

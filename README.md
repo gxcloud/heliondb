@@ -1,17 +1,17 @@
 # HelionDB
 
-**An extremely fast in-memory SQL database with PostgreSQL-compatible syntax, async WAL persistence, and QUIC transport.**
+**An extremely fast SQL database with PostgreSQL-compatible syntax, selectable per-table storage engines, async WAL persistence, and QUIC transport.**
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.95%2B-orange)](https://www.rust-lang.org)
 
 ## Overview
 
-HelionDB is an in-memory SQL database designed for speed. All data lives in RAM for maximum read/ write performance, while every mutation is asynchronously persisted to a write-ahead log (WAL) on disk. On restart, the database replays the WAL to reconstruct its full state.
+HelionDB is a SQL database designed for speed. Tables can live in RAM or on disk, while every mutation is asynchronously persisted to a write-ahead log (WAL) on disk. On restart, the database replays the WAL and restores each table into its configured storage engine.
 
 ### Key Features
 
-- **In-Memory Speed**: All data stored in RAM, no disk I/O on reads
+- **Selectable Storage Engines**: `memory` and `disk`, chosen per table or as a database default
 - **PostgreSQL-Compatible SQL**: Uses `sqlparser-rs` with the PostgreSQL dialect
 - **MVCC Concurrency**: Snapshot isolation with optimistic concurrency control — readers never block writers
 - **Async WAL Persistence**: Every write is appended to a WAL file with CRC32 integrity checks
@@ -24,8 +24,9 @@ HelionDB is an in-memory SQL database designed for speed. All data lives in RAM 
 
 | Feature | Status |
 |---------|--------|
-| `CREATE TABLE` with column types and constraints | ✅ |
+| `CREATE TABLE ... ENGINE = memory|disk` | ✅ |
 | `DROP TABLE` | ✅ |
+| `ALTER TABLE ... ENGINE = memory|disk` | ✅ |
 | `INSERT INTO ... VALUES` | ✅ |
 | `SELECT ... FROM ... WHERE` | ✅ |
 | `UPDATE ... SET ... WHERE` | ✅ |
@@ -73,10 +74,10 @@ use heliondb::executor::ops::execute;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut engine = DatabaseEngine::open("./mydb".as_ref()).await?;
+    let mut engine = DatabaseEngine::open_with_default_engine("./mydb".as_ref(), "memory").await?;
 
     // Create a table
-    let stmts = parse("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")?;
+    let stmts = parse("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER) ENGINE = disk")?;
     execute(&engine, &plan(&stmts[0], &[])?).await?;
 
     // Insert data
@@ -90,6 +91,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = execute(&engine, &plan(&stmts[0], &tables)?).await?;
 
     println!("{:?}", result);
+
+    let stmts = parse("ALTER TABLE users ENGINE = memory")?;
+    let tables = engine.get_tables().await;
+    execute(&engine, &plan(&stmts[0], &tables)?).await?;
 
     engine.shutdown().await?;
     Ok(())
@@ -106,7 +111,7 @@ cargo build --release
 ./target/release/heliondb
 
 # Run with custom options
-./target/release/heliondb --data-dir /var/lib/heliondb --listen 0.0.0.0:9613
+./target/release/heliondb --data-dir /var/lib/heliondb --listen 0.0.0.0:9613 --default-engine disk
 
 # Generate TLS cert for QUIC first run (auto-generated if missing)
 ```
@@ -191,6 +196,12 @@ Every mutation goes through the WAL:
 
 A background task periodically writes a full snapshot of all tables as a `Checkpoint` WAL record. On restart, the latest checkpoint is loaded first (avoiding full WAL replay), then remaining WAL records are applied.
 
+### Storage Layout
+
+- `memory` tables live only in RAM
+- `disk` tables live under `data/engines/disk/<table_name>/`
+- The catalog stores each table's engine and the database default engine
+
 ## Configuration
 
 ### CLI Options
@@ -203,6 +214,7 @@ Options:
       --listen <ADDR>          QUIC listen address [default: 127.0.0.1:9613]
       --cert <PATH>            TLS certificate for QUIC (auto-generated if not specified)
       --key <PATH>             TLS private key for QUIC (auto-generated if not specified)
+      --default-engine <ENGINE> Default engine for new tables [default: memory]
       --durability <MODE>      Durability mode: sync | async [default: async]
       --checkpoint-interval <S>  Seconds between checkpoints [default: 60]
   -h, --help                   Print help
