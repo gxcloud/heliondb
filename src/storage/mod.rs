@@ -6,3 +6,5 @@ pub mod checkpoint;
 pub mod engine;
 pub mod users;
 pub mod permissions;
+pub mod engine_trait;
+pub mod engines;
