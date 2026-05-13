@@ -14,11 +14,11 @@ tokio = { version = "1", features = ["full"] }
 quinn = "0.11"
 rustls = "0.23"
 rustls-pemfile = "2"
-sqlparser = "0.55"
+sqlparser = "0.62"
 dashmap = "6"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
-bincode = "1"
+bincode = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
@@ -31,15 +31,15 @@ bytes = "1"
 async-trait = "0.1"
 crc32fast = "1"
 hex = "0.4"
-rcgen = "0.13"
+rcgen = "0.14"
 argon2 = "0.5"
-rustyline = "15"
-webpki-roots = "0.26"
-rand = "0.8"
+rustyline = "18"
+webpki-roots = "1.0"
+rand = "0.9"
 
 [dev-dependencies]
 tempfile = "3"
-rand = "0.8"
+rand = "0.9"
 
 [lib]
 name = "heliondb"
