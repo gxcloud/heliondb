@@ -1,4 +1,5 @@
 use crate::error::{HelionError, Result};
+use crate::storage::btree::{Index, IndexMeta};
 use crate::storage::types::{ColumnMeta, DataType, Row};
 use serde::{Deserialize, Serialize};
 
@@ -45,17 +46,22 @@ pub struct Table {
     pub columns: Vec<ColumnMeta>,
     pub(crate) version_chains: Vec<Vec<RowVersion>>,
     pub primary_key_idx: Option<usize>,
+    pub(crate) indexes: Vec<Index>,
 }
 
 impl Table {
     pub fn new(name: &str, columns: Vec<ColumnMeta>) -> Self {
         let pk_idx = columns.iter().position(|c| c.is_primary_key);
-        Table {
+        let mut table = Table {
             name: name.to_string(),
             columns,
             version_chains: Vec::new(),
             primary_key_idx: pk_idx,
-        }
+            indexes: Vec::new(),
+        };
+        table.build_pk_index();
+        table.build_unique_indexes();
+        table
     }
 
     pub fn row_count(&self) -> usize {
@@ -112,6 +118,177 @@ impl Table {
         self.version_chains
             .get(chain_idx)
             .and_then(|chain| self.latest_visible(chain, snapshot_txid, active_txns))
+    }
+
+    // ── Index Management ──────────────────────────────────────────
+
+    /// Build a unique index on the primary key column(s), if any.
+    pub fn build_pk_index(&mut self) {
+        if let Some(pk_col) = self.primary_key_idx {
+            let pk_name = format!("pk_{}", self.name);
+            if !self.indexes.iter().any(|i| i.meta.name == pk_name) {
+                self.indexes
+                    .push(Index::new_unique(&pk_name, vec![pk_col]));
+            }
+        }
+    }
+
+    /// Build unique indexes for columns marked as `is_unique`.
+    pub fn build_unique_indexes(&mut self) {
+        for (i, col) in self.columns.iter().enumerate() {
+            if col.is_unique && !col.is_primary_key {
+                let uq_name = format!("uq_{}_{}", self.name, col.name);
+                if !self.indexes.iter().any(|idx| idx.meta.name == uq_name) {
+                    self.indexes.push(Index::new_unique(&uq_name, vec![i]));
+                }
+            }
+        }
+    }
+
+    /// Rebuild all indexes by scanning visible rows.
+    /// Used after WAL replay or checkpoint restore.
+    pub fn rebuild_indexes(&mut self) {
+        for index in &mut self.indexes {
+            index.clear();
+        }
+        // Scan committed rows (snapshot_txid = u64::MAX, no active txns)
+        let active = std::collections::BTreeSet::new();
+        for (row_idx, row) in self.scan_visible(u64::MAX, &active) {
+            for index in &mut self.indexes {
+                let key = index.extract_key(row);
+                index.insert_entry(key, row_idx);
+            }
+        }
+    }
+
+    /// Add a user-defined index.
+    pub fn add_index(
+        &mut self,
+        name: &str,
+        columns: Vec<usize>,
+        is_unique: bool,
+    ) -> Result<()> {
+        if self.indexes.iter().any(|i| i.meta.name == name) {
+            return Err(HelionError::IndexAlreadyExists(name.to_string()));
+        }
+        let mut index = if is_unique {
+            Index::new_unique(name, columns)
+        } else {
+            Index::new_non_unique(name, columns)
+        };
+        // Populate from existing data
+        let active = std::collections::BTreeSet::new();
+        for (row_idx, row) in self.scan_visible(u64::MAX, &active) {
+            let key = index.extract_key(row);
+            if is_unique {
+                index.insert(&key, row_idx).map_err(|_| {
+                    HelionError::DuplicateKey {
+                        index: name.to_string(),
+                        key: key.iter().map(|d| d.display()).collect::<Vec<_>>().join(", "),
+                    }
+                })?;
+            } else {
+                index.insert_entry(key, row_idx);
+            }
+        }
+        self.indexes.push(index);
+        Ok(())
+    }
+
+    /// Drop a named index.
+    pub fn drop_index(&mut self, name: &str) -> Result<()> {
+        let pos = self
+            .indexes
+            .iter()
+            .position(|i| i.meta.name == name)
+            .ok_or_else(|| HelionError::IndexNotFound(name.to_string()))?;
+        self.indexes.remove(pos);
+        Ok(())
+    }
+
+    /// Find an index by name.
+    pub fn find_index(&self, name: &str) -> Option<&Index> {
+        self.indexes.iter().find(|i| i.meta.name == name)
+    }
+
+    /// Check unique constraints for a write entry against the table's unique indexes.
+    /// Returns Ok if no violations, Err otherwise.
+    pub fn check_unique_constraints(
+        &self,
+        is_insert: bool,
+        row_idx: usize,
+        row: &Row,
+    ) -> Result<()> {
+        for index in &self.indexes {
+            if !index.meta.is_unique {
+                continue;
+            }
+            let key = index.extract_key(row);
+            if key.iter().all(|d| d.is_null()) {
+                continue;
+            }
+            if let Some(existing) = index.get(&key) {
+                if existing.len() == 1 && existing.contains(&row_idx) {
+                    continue;
+                }
+                if is_insert || !existing.contains(&row_idx) {
+                    let key_str: Vec<String> = key.iter().map(|d| d.display()).collect();
+                    return Err(HelionError::DuplicateKey {
+                        index: index.meta.name.clone(),
+                        key: key_str.join(", "),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Apply a write entry's changes to all indexes after commit.
+    pub fn apply_index_changes(
+        &mut self,
+        operation: &crate::storage::mvcc::WriteOp,
+        old_row: Option<&Row>,
+        row_idx: usize,
+    ) -> Result<()> {
+        match operation {
+            crate::storage::mvcc::WriteOp::Insert(row) => {
+                for index in &mut self.indexes {
+                    let key = index.extract_key(row);
+                    index.insert(&key, row_idx).map_err(|e| {
+                        HelionError::Internal(format!(
+                            "Index insert failed after commit: {}",
+                            e
+                        ))
+                    })?;
+                }
+            }
+            crate::storage::mvcc::WriteOp::Update(new_row) => {
+                for index in &mut self.indexes {
+                    let old_key = index.extract_key(
+                        old_row
+                            .ok_or_else(|| {
+                                HelionError::Internal("Missing old row for index update".into())
+                            })?,
+                    );
+                    let new_key = index.extract_key(new_row);
+                    index.update(&old_key, &new_key, row_idx).map_err(|e| {
+                        HelionError::Internal(format!(
+                            "Index update failed after commit: {}",
+                            e
+                        ))
+                    })?;
+                }
+            }
+            crate::storage::mvcc::WriteOp::Delete => {
+                if let Some(old_row) = old_row {
+                    for index in &mut self.indexes {
+                        let key = index.extract_key(old_row);
+                        index.remove(&key, row_idx);
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Validate that a row matches the table schema.
@@ -431,5 +608,179 @@ mod tests {
         assert!(!types_compatible(&DataType::Integer, &DataType::Text));
         assert!(!types_compatible(&DataType::Boolean, &DataType::Integer));
         assert!(!types_compatible(&DataType::Date, &DataType::Text));
+    }
+
+    // ── Index Tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_table_auto_creates_pk_index() {
+        let t = test_table();
+        assert!(t.primary_key_idx == Some(0));
+        assert!(t.indexes.iter().any(|i| i.meta.name == "pk_test"));
+        let pk_idx = t.indexes.iter().find(|i| i.meta.name == "pk_test").unwrap();
+        assert!(pk_idx.meta.is_unique);
+        assert_eq!(pk_idx.meta.columns, vec![0]);
+    }
+
+    #[test]
+    fn test_table_auto_creates_unique_indexes() {
+        let columns = vec![
+            ColumnMeta::new("id", DataType::Integer).primary_key(),
+            ColumnMeta::new("email", DataType::Text).not_null(),
+        ];
+        let mut t = Table::new("users", columns);
+        // No unique columns besides PK
+        assert_eq!(t.indexes.len(), 1);
+        assert_eq!(t.indexes[0].meta.name, "pk_users");
+
+        // Add a unique column
+        t.columns.push(
+            ColumnMeta::new("username", DataType::VarChar(None))
+                .not_null()
+                .primary_key(),
+        );
+        // Actually, let's test with a non-PK unique column
+        let columns = vec![
+            ColumnMeta::new("id", DataType::Integer).primary_key(),
+            ColumnMeta::new("email", DataType::Text).not_null(),
+        ];
+        let mut t2 = Table::new("users2", columns);
+        // Mark email as unique after creation
+        t2.columns[1].is_unique = true;
+        t2.build_unique_indexes();
+        assert!(t2.indexes.iter().any(|i| i.meta.name == "uq_users2_email"));
+    }
+
+    #[test]
+    fn test_rebuild_indexes() {
+        let mut t = test_table();
+        // Add some data
+        t.version_chains
+            .push(vec![RowVersion::new_insert(1, Row::new(vec![Datum::Integer(10), Datum::Text("a".into())]))]);
+        t.version_chains
+            .push(vec![RowVersion::new_insert(1, Row::new(vec![Datum::Integer(20), Datum::Text("b".into())]))]);
+
+        // Clear indexes and rebuild
+        for idx in &mut t.indexes {
+            idx.clear();
+        }
+        assert!(t.indexes[0].is_empty());
+        t.rebuild_indexes();
+        assert_eq!(t.indexes[0].len(), 2);
+    }
+
+    #[test]
+    fn test_add_index_and_populate() {
+        let mut t = test_table();
+        t.version_chains
+            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(10), Datum::Text("alice".into())]))]);
+        t.version_chains
+            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(20), Datum::Text("bob".into())]))]);
+
+        t.add_index("idx_name", vec![1], false).unwrap();
+        let idx = t.find_index("idx_name").unwrap();
+        assert!(!idx.meta.is_unique);
+        assert_eq!(idx.len(), 2);
+    }
+
+    #[test]
+    fn test_add_index_unique_violation() {
+        let mut t = test_table();
+        t.version_chains
+            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(10), Datum::Text("dup".into())]))]);
+        t.version_chains
+            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(20), Datum::Text("dup".into())]))]);
+
+        let result = t.add_index("uq_name", vec![1], true);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            HelionError::DuplicateKey { index, key } => {
+                assert_eq!(index, "uq_name");
+            }
+            e => panic!("Expected DuplicateKey, got: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_drop_index() {
+        let mut t = test_table();
+        assert_eq!(t.indexes.len(), 1);
+        t.drop_index("pk_test").unwrap();
+        assert_eq!(t.indexes.len(), 0);
+    }
+
+    #[test]
+    fn test_drop_index_not_found() {
+        let mut t = test_table();
+        let result = t.drop_index("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_add_index_duplicate_name() {
+        let mut t = test_table();
+        let result = t.add_index("pk_test", vec![1], false);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            HelionError::IndexAlreadyExists(_) => {}
+            e => panic!("Expected IndexAlreadyExists, got: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_check_unique_constraints_insert_ok() {
+        let t = test_table();
+        let row = Row::new(vec![Datum::Integer(1), Datum::Text("new".into())]);
+        assert!(t.check_unique_constraints(true, 0, &row).is_ok());
+    }
+
+    #[test]
+    fn test_check_unique_constraints_insert_conflict() {
+        let mut t = test_table();
+        // Pre-populate an entry in the PK index
+        t.version_chains
+            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("existing".into())]))]);
+        t.rebuild_indexes();
+
+        // Try to insert a row with same PK
+        let row = Row::new(vec![Datum::Integer(1), Datum::Text("duplicate".into())]);
+        let result = t.check_unique_constraints(true, 1, &row);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            HelionError::DuplicateKey { index, .. } => {
+                assert_eq!(index, "pk_test");
+            }
+            e => panic!("Expected DuplicateKey, got: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_apply_index_changes_insert() {
+        let mut t = test_table();
+        let row = Row::new(vec![Datum::Integer(1), Datum::Text("hello".into())]);
+        t.apply_index_changes(&crate::storage::mvcc::WriteOp::Insert(row.clone()), None, 0)
+            .unwrap();
+        assert_eq!(t.indexes[0].len(), 1);
+        assert!(t.indexes[0].contains(&[Datum::Integer(1)]));
+    }
+
+    #[test]
+    fn test_apply_index_changes_delete() {
+        let mut t = test_table();
+        let row = Row::new(vec![Datum::Integer(1), Datum::Text("hello".into())]);
+        t.apply_index_changes(&crate::storage::mvcc::WriteOp::Insert(row.clone()), None, 0)
+            .unwrap();
+        t.apply_index_changes(&crate::storage::mvcc::WriteOp::Delete, Some(&row), 0)
+            .unwrap();
+        assert!(!t.indexes[0].contains(&[Datum::Integer(1)]));
+    }
+
+    #[test]
+    fn test_serialize_table_with_indexes() {
+        let t = test_table();
+        let bytes = bincode::serialize(&t).unwrap();
+        let deserialized: Table = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(deserialized.indexes.len(), 1);
+        assert_eq!(deserialized.indexes[0].meta.name, "pk_test");
     }
 }
