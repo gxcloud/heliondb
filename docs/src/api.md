@@ -164,3 +164,175 @@ let logical_plan = plan(&stmts[0], &engine.get_tables().await)?;
 - `REVOKE {SELECT[(cols)]|INSERT[(cols)]|UPDATE[(cols)]|DELETE|ALL} ON table FROM user`
 - `CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (col1, col2, ...)`
 - `DROP INDEX [IF EXISTS] name ON table`
+
+## Additional Types
+
+### `QueryResult`
+
+```rust
+pub struct QueryResult {
+    pub columns: Vec<String>,         // Column names
+    pub column_types: Vec<String>,    // Column type names (for display)
+    pub rows: Vec<Vec<String>>,       // Result rows (all values as strings)
+    pub rows_affected: u64,           // Number of rows inserted/updated/deleted
+}
+```
+
+### `Row`
+
+```rust
+pub struct Row {
+    pub values: Vec<Datum>,
+}
+```
+
+### `Permission`
+
+```rust
+pub enum Permission {
+    Select(Vec<String>),    // Empty vec = all columns
+    Insert(Vec<String>),
+    Update(Vec<String>),
+    Delete,
+    All,
+}
+```
+
+### Error Handling
+
+All operations return `Result<T>` where errors use the `HelionError` enum:
+
+```rust
+use heliondb::HelionError;
+
+match engine.commit(tx).await {
+    Ok(()) => println!("Committed"),
+    Err(HelionError::Conflict(txid)) => {
+        println!("Conflict with tx {}, retrying...", txid);
+        // Retry the transaction
+    }
+    Err(HelionError::DuplicateKey { index, key }) => {
+        println!("Duplicate key on index {}: {}", index, key);
+    }
+    Err(HelionError::PermissionDenied(msg)) => {
+        println!("Access denied: {}", msg);
+    }
+    Err(e) => println!("Unexpected error: {}", e),
+}
+```
+
+## Examples
+
+### Full Transaction API
+
+```rust
+use heliondb::storage::engine::DatabaseEngine;
+use heliondb::sql::parser::parse;
+use heliondb::sql::planner::plan;
+use heliondb::executor::ops::execute;
+use heliondb::HelionError;
+
+let mut engine = DatabaseEngine::open("./mydb".as_ref()).await?;
+
+// Create table
+let sql = "CREATE TABLE accounts (id INTEGER PRIMARY KEY, owner TEXT, balance REAL)";
+execute(&engine, &plan(&parse(sql)?[0], &engine.get_tables().await)?).await?;
+
+// Transaction with conflict retry
+let mut tx = engine.begin();
+
+// Insert a row (within the transaction)
+let insert_sql = "INSERT INTO accounts VALUES (1, 'Alice', 1000.00)";
+let stmts = parse(insert_sql)?;
+let insert_plan = plan(&stmts[0], &engine.get_tables().await)?;
+execute(&engine, &insert_plan).await?;
+
+// Read the row
+let select_sql = "SELECT * FROM accounts WHERE id = 1";
+let stmts = parse(select_sql)?;
+let select_plan = plan(&stmts[0], &engine.get_tables().await)?;
+let result = execute(&engine, &select_plan).await?;
+println!("Rows: {:?}", result.rows);
+
+// Commit with retry
+loop {
+    match engine.commit(tx).await {
+        Ok(()) => break,
+        Err(HelionError::Conflict(_)) => {
+            // Retry: re-read, re-compute, re-try
+            tx = engine.begin();
+            // ... re-execute the transaction ...
+        }
+        Err(e) => return Err(e.into()),
+    }
+}
+```
+
+### Permission Checks with Users
+
+```rust
+use heliondb::executor::ops::execute_as;
+
+// Create users and grant permissions via SQL
+execute(&engine, &plan(&parse("CREATE USER alice WITH PASSWORD 'secret'")?[0], &[])?).await?;
+execute(&engine, &plan(&parse("GRANT SELECT(id, name) ON users TO alice")?[0], &[])?).await?;
+
+// Execute as a user (permission checks active)
+let result = execute_as(&engine,
+    &plan(&parse("SELECT id, name FROM users")?[0], &engine.get_tables().await)?,
+    Some("alice"),
+).await?;
+
+// This would fail: alice doesn't have SELECT on the 'email' column
+let result = execute_as(&engine,
+    &plan(&parse("SELECT email FROM users")?[0], &engine.get_tables().await)?,
+    Some("alice"),
+).await;
+assert!(result.is_err());
+```
+
+### Manual Row Creation
+
+```rust
+use heliondb::storage::types::{Row, Datum, DataType, ColumnMeta, coerce_datum};
+
+let columns = vec![
+    ColumnMeta::new("id").primary_key(),
+    ColumnMeta::new("name").not_null(),
+    ColumnMeta::new("score"),
+];
+
+let mut row = Row::new(vec![
+    Datum::Integer(1),
+    Datum::Text("Alice".into()),
+    Datum::Null,
+]);
+
+// Coerce values to match column types
+for (i, val) in row.values.iter_mut().enumerate() {
+    *val = coerce_datum(val, &columns[i].data_type)?;
+}
+```
+
+### Index Programmatic Usage
+
+```rust
+use heliondb::storage::btree::{Index, IndexMeta};
+
+// Create a composite index on columns 0 and 1
+let mut idx = Index::new_non_unique("name_idx", vec![0, 1]);
+
+// Insert row references
+idx.insert(&[Datum::Text("Alice".into()), Datum::Integer(30)], 0)?;
+idx.insert(&[Datum::Text("Bob".into()), Datum::Integer(25)], 1)?;
+idx.insert(&[Datum::Text("Alice".into()), Datum::Integer(35)], 2)?;
+
+// Range scan: all entries with name >= "Alice"
+let results: Vec<usize> = idx.scan_from(vec![Datum::Text("Alice".into())]);
+// Returns [0, 2] — the two Alice rows
+
+// Point lookup
+if let Some(row_idxs) = idx.get(&[Datum::Text("Bob".into()), Datum::Integer(25)]) {
+    println!("Found Bob, age 25 at row index {:?}", row_idxs);
+}
+```

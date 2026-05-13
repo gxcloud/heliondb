@@ -64,7 +64,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Where To Go Next
 
-- Read the [User Guide](user-guide.md)
-- Learn the [Architecture](architecture.md)
-- Review the [API Reference](api.md)
-- Inspect the [Wire Protocol](protocol.md)
+- **New to HelionDB?** Start with the [User Guide](user-guide.md) and [Build Guide](build.md)
+- **Deploying to production?** Read the [Deployment Guide](deployment.md) (Docker, systemd, TLS, backups)
+- **Understanding the internals?** Dive into the [Architecture](architecture.md) (MVCC, WAL, commit pipeline)
+- **Writing SQL?** Check the [SQL Reference](sql-reference.md) for syntax and type coercion rules
+- **Building an application?** Use the [API Reference](api.md) for library documentation
+- **Implementing a client?** Study the [Wire Protocol](protocol.md)
+- **Contributing code?** Read the [Contributing Guide](contributing.md) for development workflow
+- **Fixing a problem?** Search the [Troubleshooting Guide](troubleshooting.md) for common issues
