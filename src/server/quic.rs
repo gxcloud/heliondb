@@ -15,6 +15,8 @@ pub struct QuicServer {
     addr: String,
     cert_path: Option<String>,
     key_path: Option<String>,
+    max_concurrent_streams: u32,
+    idle_timeout_seconds: u64,
 }
 
 impl QuicServer {
@@ -32,16 +34,20 @@ impl QuicServer {
             addr: addr.to_string(),
             cert_path,
             key_path,
+            max_concurrent_streams: 100,
+            idle_timeout_seconds: 30,
         }
     }
 
-    /// Create a server with multiple named databases.
+    /// Create a server with multiple named databases and transport config.
     pub fn with_databases(
         databases: HashMap<String, DatabaseEngine>,
         default_database: &str,
         addr: &str,
         cert_path: Option<String>,
         key_path: Option<String>,
+        max_concurrent_streams: u32,
+        idle_timeout_seconds: u64,
     ) -> Self {
         let map: DatabaseMap = databases
             .into_iter()
@@ -53,6 +59,8 @@ impl QuicServer {
             addr: addr.to_string(),
             cert_path,
             key_path,
+            max_concurrent_streams,
+            idle_timeout_seconds,
         }
     }
 
@@ -98,8 +106,12 @@ impl QuicServer {
         key: PrivateKeyDer<'static>,
     ) -> Result<ServerConfig> {
         let mut transport = TransportConfig::default();
-        transport.max_concurrent_bidi_streams(100u32.into());
-        transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
+        transport.max_concurrent_bidi_streams(self.max_concurrent_streams.into());
+        transport.max_idle_timeout(Some(
+            std::time::Duration::from_secs(self.idle_timeout_seconds)
+                .try_into()
+                .unwrap(),
+        ));
 
         let mut server_config = ServerConfig::with_single_cert(cert, key)
             .map_err(|e| HelionError::Protocol(format!("TLS config error: {}", e)))?;

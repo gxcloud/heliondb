@@ -665,7 +665,7 @@ async fn test_wal_recovery_drop_table() {
 async fn test_disk_engine_persists_across_restart() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         exec(
@@ -678,7 +678,7 @@ async fn test_disk_engine_persists_across_restart() {
     }
 
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         let result = exec(&engine, "SELECT * FROM disk_items").await;
@@ -694,7 +694,7 @@ async fn test_disk_engine_persists_across_restart() {
 async fn test_alter_table_engine_roundtrip() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         exec(&engine, "CREATE TABLE migrate_me (id INTEGER, name TEXT)").await;
@@ -716,7 +716,7 @@ async fn test_alter_table_engine_roundtrip() {
     }
 
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         let result = exec(&engine, "SELECT id, name FROM migrate_me ORDER BY id").await;
@@ -1062,7 +1062,7 @@ async fn test_composite_index() {
 async fn test_index_on_disk_engine() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         exec(
@@ -1082,7 +1082,7 @@ async fn test_index_on_disk_engine() {
         engine.shutdown().await.unwrap();
     }
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         // After restart, PK index should still enforce uniqueness

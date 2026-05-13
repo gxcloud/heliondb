@@ -159,10 +159,14 @@ fn get_visible_row(table: &Table, row_idx: usize) -> Option<&crate::storage::typ
 
 impl DatabaseEngine {
     pub async fn open(data_dir: &Path) -> Result<Self> {
-        Self::open_with_default_engine(data_dir, "memory").await
+        Self::open_with_default_engine(data_dir, "disk", 60).await
     }
 
-    pub async fn open_with_default_engine(data_dir: &Path, default_engine: &str) -> Result<Self> {
+    pub async fn open_with_default_engine(
+        data_dir: &Path,
+        default_engine: &str,
+        checkpoint_interval_seconds: u64,
+    ) -> Result<Self> {
         if !data_dir.exists() {
             std::fs::create_dir_all(data_dir)?;
         }
@@ -203,7 +207,7 @@ impl DatabaseEngine {
 
         engine.restore_tables_to_engines().await?;
         engine.bootstrap_default_user().await?;
-        engine.spawn_checkpoint_loop();
+        engine.spawn_checkpoint_loop(checkpoint_interval_seconds);
 
         Ok(engine)
     }
@@ -270,7 +274,7 @@ impl DatabaseEngine {
         Ok(())
     }
 
-    fn spawn_checkpoint_loop(&self) {
+    fn spawn_checkpoint_loop(&self, interval_seconds: u64) {
         let checkpoint_tables = self.tables.clone();
         let checkpoint_wal = self.wal_writer.clone();
         let checkpoint_data_dir = self.data_dir.clone();
@@ -280,7 +284,7 @@ impl DatabaseEngine {
                 checkpoint_data_dir,
                 checkpoint_tables,
                 checkpoint_wal,
-                60,
+                interval_seconds,
                 checkpoint_cancel,
             )
             .await;

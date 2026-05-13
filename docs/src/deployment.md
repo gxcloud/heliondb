@@ -6,6 +6,79 @@
 - Minimum 256 MB RAM (512 MB+ recommended)
 - ~50 MB disk for the binary; variable for data directory
 
+## Configuration File
+
+HelionDB can be configured via a TOML file in addition to CLI arguments. CLI arguments override values in the config file.
+
+By default, the server looks for `heliondb.toml` in the current directory. Use `--config` or the `HELIONDB_CONFIG` environment variable to specify a different path:
+
+```bash
+heliondb --config /etc/heliondb/prod.toml
+```
+
+### Example Configuration
+
+```toml
+[server]
+# QUIC listen address (default: "127.0.0.1:9613")
+listen = "0.0.0.0:9613"
+
+# Default database for connections that don't specify one (default: "default")
+default_database = "default"
+
+# Max concurrent bidirectional streams per QUIC connection (default: 100)
+max_concurrent_streams = 200
+
+# Idle timeout in seconds before closing inactive connections (default: 30)
+idle_timeout_seconds = 60
+
+[tls]
+# Path to TLS certificate file (PEM). Auto-generated if not specified.
+cert_path = "/etc/heliondb/cert.pem"
+
+# Path to TLS private key file (PEM). Auto-generated if not specified.
+key_path = "/etc/heliondb/key.pem"
+
+[storage]
+# Root data directory (used when no databases are explicitly configured)
+data_dir = "/var/lib/heliondb"
+
+# Default storage engine for new tables: "disk" or "memory" (default: "disk")
+default_engine = "disk"
+
+# Durability mode: "async" (fast, up to 5ms data loss) or "sync" (safe) (default: "async")
+durability = "sync"
+
+# Seconds between checkpoint snapshots (default: 60)
+checkpoint_interval_seconds = 120
+
+# Named databases. If specified, each database has its own engine, WAL, and catalog.
+# If omitted, a single "default" database is created at storage.data_dir.
+[[database]]
+name = "default"
+path = "/var/lib/heliondb/default"
+
+[[database]]
+name = "analytics"
+path = "/data/analytics"
+engine = "disk"
+```
+
+### Config Resolution Order
+
+1. CLI arguments (highest priority) — e.g. `--listen`, `--data-dir`
+2. Config file values — from `heliondb.toml` or `--config` path
+3. Built-in defaults (lowest priority)
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `HELIONDB_CONFIG` | Path to TOML config file |
+| `HELIONDB_USER` | Default username for helionctl |
+| `HELIONDB_PASSWORD` | Default password for helionctl and admin user creation |
+| `HELION_PASSWORD` | Alias for `HELIONDB_PASSWORD` |
+
 ## Docker
 
 ### Build the Image
