@@ -144,6 +144,19 @@ pub struct DatabaseEngine {
     pub(crate) permissions: RwLock<PermissionStore>,
 }
 
+/// Get the latest committed visible row from a table at a given chain index.
+fn get_visible_row<'a>(table: &'a Table, row_idx: usize) -> Option<&'a crate::storage::types::Row> {
+    if row_idx < table.version_chains.len() {
+        let chain = &table.version_chains[row_idx];
+        for version in chain.iter().rev() {
+            if version.txid_max == u64::MAX && !version.is_deleted {
+                return Some(&version.row);
+            }
+        }
+    }
+    None
+}
+
 impl DatabaseEngine {
     pub async fn open(data_dir: &Path) -> Result<Self> {
         Self::open_with_default_engine(data_dir, "memory").await
@@ -296,6 +309,25 @@ impl DatabaseEngine {
             return Err(HelionError::Conflict(tx.tx_id));
         }
 
+        // Check unique constraints against indexes
+        for entry in &tx.write_set {
+            if let Some(table) = tables_snapshot.get(&entry.table_name) {
+                match &entry.operation {
+                    WriteOp::Insert(row) => {
+                        table.check_unique_constraints(true, entry.row_idx, row)?;
+                    }
+                    WriteOp::Update(new_row) => {
+                        let old_row = get_visible_row(table, entry.row_idx);
+                        if let Some(old) = old_row {
+                            // Allow the update if old key == new key (same row)
+                            table.check_unique_constraints(false, entry.row_idx, new_row)?;
+                        }
+                    }
+                    WriteOp::Delete => {}
+                }
+            }
+        }
+
         let changes = MvccStore::apply_write_set(&tx.write_set, &tables_snapshot, tx.tx_id);
 
         let mut engine_changes: HashMap<String, Vec<(usize, crate::storage::table::RowVersion)>> =
@@ -347,6 +379,16 @@ impl DatabaseEngine {
             for (table_name, new_chains) in changes {
                 if let Some(table) = tables.iter_mut().find(|t| t.name == table_name) {
                     table.version_chains = new_chains;
+                    // Update indexes for each write entry
+                    for entry in &tx.write_set {
+                        if entry.table_name != table_name {
+                            continue;
+                        }
+                        let old_row = tables_snapshot
+                            .get(&table_name)
+                            .and_then(|t| get_visible_row(t, entry.row_idx));
+                        table.apply_index_changes(&entry.operation, old_row, entry.row_idx)?;
+                    }
                 }
             }
         }
