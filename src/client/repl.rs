@@ -104,6 +104,7 @@ impl Repl {
                 println!("  \\?, \\h, \\help  Show this help");
                 println!("  \\x           Toggle expanded (vertical) display");
                 println!("  \\g           Re-run the last query");
+                println!("  \\reconnect   Reconnect to the server");
                 println!();
                 println!("All other input is treated as SQL and sent to the server.");
                 Action::Continue
@@ -116,6 +117,13 @@ impl Repl {
                 );
                 Action::Continue
             }
+            "\\reconnect" | "\\connect" => match self.conn.reconnect().await {
+                Ok(()) => {
+                    println!("Reconnected to server.");
+                    Action::Continue
+                }
+                Err(e) => Action::Error(format!("Reconnect failed: {}", e)),
+            },
             "\\g" => {
                 match &self.last_query {
                     Some(sql) => match self.conn.query(sql).await {

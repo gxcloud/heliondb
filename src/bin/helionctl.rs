@@ -324,7 +324,7 @@ async fn load_client_certs(
 async fn run_query(args: ConnectionArgs, sql: &str) -> anyhow::Result<()> {
     let client_certs = load_client_certs(&args.client_cert, &args.client_key).await?;
 
-    let conn = ClientConn::connect(
+    let mut conn = ClientConn::connect(
         &args.host,
         &args.server_name,
         &args.user,

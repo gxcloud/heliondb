@@ -15,6 +15,10 @@ pub struct ClientConn {
     pub username: String,
     pub database: String,
     password: String,
+    addr: String,
+    server_name: String,
+    insecure: bool,
+    rustls_config: Arc<rustls::ClientConfig>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -73,7 +77,10 @@ impl ClientConn {
             .map_err(|e| HelionError::Protocol(format!("TLS config error: {}", e)))?;
         let mut quinn_config = ClientConfig::new(Arc::new(quic_client_config));
         let mut transport = quinn::TransportConfig::default();
-        transport.max_idle_timeout(Some(std::time::Duration::from_secs(30).try_into().unwrap()));
+        transport.max_idle_timeout(Some(
+            std::time::Duration::from_secs(600).try_into().unwrap(),
+        ));
+        transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
         quinn_config.transport_config(Arc::new(transport));
 
         let server_addr: std::net::SocketAddr = addr
@@ -96,17 +103,27 @@ impl ClientConn {
             username: username.to_string(),
             database: database.to_string(),
             password: password.to_string(),
+            addr: addr.to_string(),
+            server_name: server_name.to_string(),
+            insecure,
+            rustls_config: tls_config,
         })
     }
 
     /// Execute a SQL query.
     /// Opens a single stream, authenticates, sends the query, and reads the response.
-    pub async fn query(&self, sql: &str) -> std::result::Result<QueryResult, HelionError> {
-        let (mut send, mut recv) = self
-            .connection
-            .open_bi()
-            .await
-            .map_err(|e| HelionError::Protocol(format!("Stream error: {}", e)))?;
+    /// If the connection is dead (e.g. idle timeout), automatically reconnects and retries once.
+    pub async fn query(&mut self, sql: &str) -> std::result::Result<QueryResult, HelionError> {
+        let (mut send, mut recv) = match self.connection.open_bi().await {
+            Ok(stream) => stream,
+            Err(_) => {
+                self.reconnect().await?;
+                self.connection
+                    .open_bi()
+                    .await
+                    .map_err(|e| HelionError::Protocol(format!("Stream error: {}", e)))?
+            }
+        };
 
         // 1. Send Auth (don't finish — more data follows)
         let auth_msg = ClientMessage::Auth {
@@ -166,6 +183,39 @@ impl ClientConn {
     /// Close the connection.
     pub async fn close(&self) {
         self.connection.close(0u32.into(), b"bye");
+    }
+
+    /// Re-establish the QUIC connection using stored parameters.
+    /// Creates a fresh endpoint and re-authenticates via TLS.
+    pub async fn reconnect(&mut self) -> std::result::Result<(), HelionError> {
+        let endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())
+            .map_err(|e| HelionError::Protocol(format!("Endpoint error: {}", e)))?;
+
+        let quic_client_config = QuicClientConfig::try_from(self.rustls_config.as_ref().clone())
+            .map_err(|e| HelionError::Protocol(format!("TLS config error: {}", e)))?;
+        let mut quinn_config = ClientConfig::new(Arc::new(quic_client_config));
+        let mut transport = quinn::TransportConfig::default();
+        transport.max_idle_timeout(Some(
+            std::time::Duration::from_secs(600).try_into().unwrap(),
+        ));
+        transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
+        quinn_config.transport_config(Arc::new(transport));
+
+        let server_addr: std::net::SocketAddr = self
+            .addr
+            .parse()
+            .map_err(|e| HelionError::Protocol(format!("Invalid address: {}", e)))?;
+
+        let connecting = endpoint
+            .connect_with(quinn_config, server_addr, self.server_name.as_str())
+            .map_err(|e| HelionError::Protocol(format!("Connect error: {}", e)))?;
+
+        self.connection = connecting
+            .await
+            .map_err(|e| HelionError::Protocol(format!("Connection failed: {}", e)))?;
+
+        debug!("Reconnected as '{}'", self.username);
+        Ok(())
     }
 
     // ── Protocol I/O ──────────────────────────────────────────────
