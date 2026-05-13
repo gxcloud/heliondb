@@ -11,6 +11,8 @@ pub struct Config {
     #[serde(default)]
     pub storage: StorageConfig,
     #[serde(default)]
+    pub observability: ObservabilityConfig,
+    #[serde(default)]
     pub database: Vec<DatabaseConfig>,
 }
 
@@ -56,6 +58,17 @@ pub struct TlsConfig {
 }
 
 // ── Storage Section ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ObservabilityConfig {
+    /// Port for Prometheus metrics HTTP endpoint (0 = disabled)
+    #[serde(default = "default_metrics_port")]
+    pub metrics_port: u16,
+}
+
+fn default_metrics_port() -> u16 {
+    0
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageConfig {
@@ -185,6 +198,12 @@ impl std::fmt::Display for Config {
             f,
             "  client_cert_required:    {}",
             self.tls.client_cert_required
+        )?;
+        writeln!(f, "Observability:")?;
+        writeln!(
+            f,
+            "  metrics_port:            {}",
+            self.observability.metrics_port
         )?;
         writeln!(f, "Storage:")?;
         writeln!(f, "  data_dir:                {}", self.storage.data_dir)?;

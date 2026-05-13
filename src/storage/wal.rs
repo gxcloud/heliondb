@@ -66,13 +66,19 @@ pub use crate::storage::table::RowVersion;
 
 pub struct WalWriter {
     file: File,
-    #[allow(dead_code)]
     path: PathBuf,
+    durability: String,
+    unsynced_bytes: u64,
 }
 
 impl WalWriter {
     /// Open or create the WAL file.
     pub async fn open(data_dir: &Path) -> Result<Self> {
+        Self::open_with_durability(data_dir, "async").await
+    }
+
+    /// Open or create the WAL file with a durability mode.
+    pub async fn open_with_durability(data_dir: &Path, durability: &str) -> Result<Self> {
         let path = data_dir.join(WAL_FILE);
         let file = fs::OpenOptions::new()
             .create(true)
@@ -82,10 +88,19 @@ impl WalWriter {
             .map_err(|e| {
                 HelionError::Io(format!("Failed to open WAL '{}': {}", path.display(), e))
             })?;
-        Ok(WalWriter { file, path })
+        Ok(WalWriter {
+            file,
+            path,
+            durability: durability.to_string(),
+            unsynced_bytes: 0,
+        })
     }
 
-    /// Write a record to the WAL immediately (async).
+    /// Write a record to the WAL.
+    ///
+    /// In `sync` durability mode, calls `fsync` after every write (safest, slowest).
+    /// In `async` durability mode, flushes to OS buffer but does NOT fsync (fast,
+    /// up to ~100ms data loss on crash). Periodic fsyncs are done by the checkpoint loop.
     pub async fn append(&mut self, record: WalRecord) -> Result<()> {
         let bytes =
             bincode::serialize(&record).map_err(|e| HelionError::Serialization(e.to_string()))?;
@@ -97,13 +112,45 @@ impl WalWriter {
         self.file.write_all(&bytes).await?;
         self.file.write_all(&checksum.to_le_bytes()).await?;
         self.file.flush().await?;
+        self.unsynced_bytes += 8 + len + 4;
+
+        match self.durability.as_str() {
+            "sync" => {
+                self.file.sync_all().await?;
+                self.unsynced_bytes = 0;
+            }
+            _ => {
+                // In async mode, sync when unsynced data exceeds 1MB (threshold)
+                if self.unsynced_bytes > 1_048_576 {
+                    self.file.sync_all().await?;
+                    self.unsynced_bytes = 0;
+                }
+            }
+        }
         Ok(())
     }
 
-    /// Flush and sync the WAL file.
+    /// Flush and sync the WAL file unconditionally.
     pub async fn flush(&mut self) -> Result<()> {
         self.file.flush().await?;
         self.file.sync_all().await?;
+        self.unsynced_bytes = 0;
+        Ok(())
+    }
+
+    /// Rotate the WAL: rename current to `.wal.old` and start a fresh file.
+    /// Called after a checkpoint to keep WAL size bounded.
+    pub async fn rotate(&mut self) -> Result<()> {
+        self.file.flush().await?;
+        self.file.sync_all().await?;
+        let old_path = self.path.with_extension("wal.old");
+        let _ = fs::remove_file(&old_path).await;
+        fs::rename(&self.path, &old_path).await?;
+        self.file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .await?;
         Ok(())
     }
 }

@@ -66,12 +66,14 @@ pub async fn write_checkpoint(
         .collect();
     drop(tables_guard);
 
-    // Write checkpoint record to WAL (will be replayed on next startup)
+    // Write checkpoint record to WAL
+    let mut wal = wal_writer.lock().await;
     let record = WalRecord::Checkpoint {
         table_count,
         tables: checkpoint_tables,
     };
-    wal_writer.lock().await.append(record).await?;
+    wal.append(record).await?;
+    drop(wal);
 
     info!("Checkpoint written ({} tables)", table_count);
     Ok(())

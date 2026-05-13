@@ -167,6 +167,21 @@ impl DatabaseEngine {
         default_engine: &str,
         checkpoint_interval_seconds: u64,
     ) -> Result<Self> {
+        Self::open_with_durability(
+            data_dir,
+            default_engine,
+            checkpoint_interval_seconds,
+            "async",
+        )
+        .await
+    }
+
+    pub async fn open_with_durability(
+        data_dir: &Path,
+        default_engine: &str,
+        checkpoint_interval_seconds: u64,
+        durability: &str,
+    ) -> Result<Self> {
         if !data_dir.exists() {
             std::fs::create_dir_all(data_dir)?;
         }
@@ -182,7 +197,9 @@ impl DatabaseEngine {
         let catalog = Catalog::open(data_dir, default_engine).await?;
         let users = replay_users_from_wal(data_dir).await?;
         let permissions = replay_permissions_from_wal(data_dir).await?;
-        let wal_writer = Arc::new(Mutex::new(WalWriter::open(data_dir).await?));
+        let wal_writer = Arc::new(Mutex::new(
+            WalWriter::open_with_durability(data_dir, durability).await?,
+        ));
 
         // Rebuild indexes from version chain data (indexes are not stored
         // in individual WAL records, only as part of checkpoint snapshots)
@@ -766,7 +783,7 @@ impl DatabaseEngine {
         }
     }
 
-    pub async fn shutdown(&mut self) -> Result<()> {
+    pub async fn shutdown(&self) -> Result<()> {
         info!("Shutting down database engine...");
         self.cancel.cancel();
         write_checkpoint(&self.data_dir, &self.tables, &self.wal_writer).await?;

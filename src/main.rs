@@ -1,9 +1,12 @@
 use clap::Parser;
 use std::collections::HashMap;
-use tracing::info;
+use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 use heliondb::config::Config;
+use heliondb::metrics::{serve_metrics, MetricsRegistry};
 use heliondb::server::quic::QuicServer;
 use heliondb::storage::engine::DatabaseEngine;
 
@@ -73,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
     let default_database = cli
         .default_database
         .unwrap_or(cfg.server.default_database.clone());
-    let _durability = cli.durability.unwrap_or(cfg.storage.durability.clone());
+    let durability = cli.durability.unwrap_or(cfg.storage.durability.clone());
     let cert_path = cli.cert.or(cfg.tls.cert_path.clone());
     let key_path = cli.key.or(cfg.tls.key_path.clone());
     let checkpoint_interval = cfg.storage.checkpoint_interval_seconds;
@@ -93,10 +96,11 @@ async fn main() -> anyhow::Result<()> {
                 let name = name.trim().to_string();
                 let path = path.trim();
                 info!("Opening database '{}' at {}", name, path);
-                let engine = DatabaseEngine::open_with_default_engine(
+                let engine = DatabaseEngine::open_with_durability(
                     path.as_ref(),
                     &default_engine,
                     checkpoint_interval,
+                    &durability,
                 )
                 .await?;
                 dbs.insert(name, engine);
@@ -116,10 +120,11 @@ async fn main() -> anyhow::Result<()> {
                 "Opening database '{}' at {} (engine: {})",
                 db_cfg.name, db_cfg.path, engine
             );
-            let engine = DatabaseEngine::open_with_default_engine(
+            let engine = DatabaseEngine::open_with_durability(
                 db_cfg.path.as_ref(),
                 &engine,
                 checkpoint_interval,
+                &durability,
             )
             .await?;
             dbs.insert(db_cfg.name.clone(), engine);
@@ -128,10 +133,11 @@ async fn main() -> anyhow::Result<()> {
     } else {
         // Single default database
         info!("Data directory: {}", data_dir);
-        let engine = DatabaseEngine::open_with_default_engine(
+        let engine = DatabaseEngine::open_with_durability(
             data_dir.as_ref(),
             &default_engine,
             checkpoint_interval,
+            &durability,
         )
         .await?;
         let mut dbs = HashMap::new();
@@ -144,8 +150,57 @@ async fn main() -> anyhow::Result<()> {
         databases.len()
     );
 
+    // Wrap databases in Arc for signal handler access
+    let databases: HashMap<String, Arc<DatabaseEngine>> = databases
+        .into_iter()
+        .map(|(name, engine)| (name, Arc::new(engine)))
+        .collect();
+    let shutdown_token = CancellationToken::new();
+
+    // Graceful shutdown on SIGINT/SIGTERM
+    {
+        let token = shutdown_token.clone();
+        let dbs = databases.clone();
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c().await.ok();
+            info!("Shutdown signal received, initiating graceful shutdown...");
+
+            #[cfg(unix)]
+            {
+                // Also listen for SIGTERM
+                let mut term =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+                if let Some(ref mut s) = term {
+                    s.recv().await;
+                }
+            }
+
+            token.cancel();
+            for (name, engine) in dbs.iter() {
+                info!("Shutting down database '{}'...", name);
+                if let Err(e) = engine.shutdown().await {
+                    error!("Error shutting down database '{}': {}", name, e);
+                }
+            }
+            info!("Shutdown complete.");
+            std::process::exit(0);
+        });
+    }
+
+    // Start Prometheus metrics HTTP endpoint if configured
+    let metrics_registry = MetricsRegistry::new();
+    if cfg.observability.metrics_port > 0 {
+        let reg = metrics_registry.clone();
+        let metrics_addr = format!("0.0.0.0:{}", cfg.observability.metrics_port);
+        tokio::spawn(async move {
+            if let Err(e) = serve_metrics(reg, &metrics_addr).await {
+                error!("Metrics server error: {}", e);
+            }
+        });
+    }
+
     // Start QUIC server
-    let server = QuicServer::with_databases(
+    let server = QuicServer::with_databases_and_cancel(
         databases,
         &default_database,
         &listen,
@@ -155,6 +210,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.tls.client_cert_required,
         max_streams,
         idle_timeout,
+        shutdown_token,
     );
 
     server.start().await?;

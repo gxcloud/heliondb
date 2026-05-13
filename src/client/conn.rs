@@ -17,7 +17,6 @@ pub struct ClientConn {
     password: String,
     addr: String,
     server_name: String,
-    insecure: bool,
     rustls_config: Arc<rustls::ClientConfig>,
 }
 
@@ -105,7 +104,6 @@ impl ClientConn {
             password: password.to_string(),
             addr: addr.to_string(),
             server_name: server_name.to_string(),
-            insecure,
             rustls_config: tls_config,
         })
     }

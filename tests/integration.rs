@@ -518,14 +518,14 @@ async fn test_wal_recovery_basic() {
     let dir = TempDir::new().unwrap();
     // First session: create + insert + manual flush
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         exec(&engine, "CREATE TABLE t (id INTEGER, name TEXT)").await;
         exec(&engine, "INSERT INTO t VALUES (1, 'Alice')").await;
         engine.shutdown().await.unwrap();
     }
     // Second session: recover and verify
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         let r = exec(&engine, "SELECT * FROM t WHERE id = 1").await;
         assert_eq!(r.rows.len(), 1);
         assert_eq!(r.rows[0][1], "Alice");
@@ -537,7 +537,7 @@ async fn test_wal_recovery_basic() {
 async fn test_wal_recovery_multi_insert() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         exec(&engine, "CREATE TABLE t (id INTEGER)").await;
         // Write each insert in its own transaction via exec helper
         exec(&engine, "INSERT INTO t VALUES (10)").await;
@@ -552,7 +552,7 @@ async fn test_wal_recovery_multi_insert() {
         engine.shutdown().await.unwrap();
     }
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         // Use a direct table check without aggregate functions
         let tables = engine.get_tables().await;
         assert_eq!(tables.len(), 1, "Should have 1 table");
@@ -568,7 +568,7 @@ async fn test_wal_recovery_multi_insert() {
 async fn test_wal_recovery_with_update() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         exec(&engine, "CREATE TABLE t (id INTEGER, val INTEGER)").await;
         exec(&engine, "INSERT INTO t VALUES (1, 100)").await;
 
@@ -583,7 +583,7 @@ async fn test_wal_recovery_with_update() {
         engine.shutdown().await.unwrap();
     }
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         // Use direct scan_visible to bypass executor logic
         let tables = engine.get_tables().await;
         use std::collections::BTreeSet;
@@ -603,7 +603,7 @@ async fn test_wal_recovery_with_update() {
 async fn test_wal_recovery_with_delete() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         exec(&engine, "CREATE TABLE t (id INTEGER)").await;
         exec(&engine, "INSERT INTO t VALUES (1)").await;
         exec(&engine, "INSERT INTO t VALUES (2)").await;
@@ -611,7 +611,7 @@ async fn test_wal_recovery_with_delete() {
         engine.shutdown().await.unwrap();
     }
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         let tables = engine.get_tables().await;
         use std::collections::BTreeSet;
         let visible = tables[0].scan_visible(u64::MAX, &BTreeSet::new());
@@ -624,7 +624,7 @@ async fn test_wal_recovery_with_delete() {
 async fn test_wal_recovery_with_users_and_grants() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         exec(&engine, "CREATE TABLE t (id INTEGER)").await;
         exec(&engine, "CREATE USER alice WITH PASSWORD 'secret'").await;
         let tables = engine.get_tables().await;
@@ -635,7 +635,7 @@ async fn test_wal_recovery_with_users_and_grants() {
         engine.shutdown().await.unwrap();
     }
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         assert!(engine.user_exists("alice").await);
         assert!(engine.verify_user("alice", "secret").await);
         assert!(engine.has_permission("alice", "t", &["id"]).await);
@@ -647,14 +647,14 @@ async fn test_wal_recovery_with_users_and_grants() {
 async fn test_wal_recovery_drop_table() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         exec(&engine, "CREATE TABLE t (id INTEGER)").await;
         exec(&engine, "INSERT INTO t VALUES (1)").await;
         exec(&engine, "DROP TABLE t").await;
         engine.shutdown().await.unwrap();
     }
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         let tables = engine.get_tables().await;
         assert_eq!(tables.len(), 0);
         engine.shutdown().await.unwrap();
@@ -665,7 +665,7 @@ async fn test_wal_recovery_drop_table() {
 async fn test_disk_engine_persists_across_restart() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
+        let engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         exec(
@@ -678,7 +678,7 @@ async fn test_disk_engine_persists_across_restart() {
     }
 
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
+        let engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         let result = exec(&engine, "SELECT * FROM disk_items").await;
@@ -694,7 +694,7 @@ async fn test_disk_engine_persists_across_restart() {
 async fn test_alter_table_engine_roundtrip() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
+        let engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         exec(&engine, "CREATE TABLE migrate_me (id INTEGER, name TEXT)").await;
@@ -716,7 +716,7 @@ async fn test_alter_table_engine_roundtrip() {
     }
 
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
+        let engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         let result = exec(&engine, "SELECT id, name FROM migrate_me ORDER BY id").await;
@@ -1014,7 +1014,7 @@ async fn test_index_accelerates_select() {
 async fn test_index_works_after_wal_recovery() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         exec(
             &engine,
             "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
@@ -1025,7 +1025,7 @@ async fn test_index_works_after_wal_recovery() {
         engine.shutdown().await.unwrap();
     }
     {
-        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        let engine = DatabaseEngine::open(dir.path()).await.unwrap();
         // PK index should be rebuilt and enforce uniqueness
         let stmts = parse("INSERT INTO t VALUES (1, 999)").unwrap();
         let tables = engine.get_tables().await;
@@ -1062,7 +1062,7 @@ async fn test_composite_index() {
 async fn test_index_on_disk_engine() {
     let dir = TempDir::new().unwrap();
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
+        let engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         exec(
@@ -1082,7 +1082,7 @@ async fn test_index_on_disk_engine() {
         engine.shutdown().await.unwrap();
     }
     {
-        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
+        let engine = DatabaseEngine::open_with_default_engine(dir.path(), "disk", 60)
             .await
             .unwrap();
         // After restart, PK index should still enforce uniqueness

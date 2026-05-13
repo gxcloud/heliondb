@@ -71,6 +71,7 @@ pub mod client;
 pub mod config;
 pub mod error;
 pub mod executor;
+pub mod metrics;
 pub mod protocol;
 pub mod server;
 pub mod sql;

@@ -74,6 +74,32 @@ impl QuicServer {
         }
     }
 
+    pub fn with_databases_and_cancel(
+        databases: HashMap<String, Arc<DatabaseEngine>>,
+        default_database: &str,
+        addr: &str,
+        cert_path: Option<String>,
+        key_path: Option<String>,
+        client_ca_cert_path: Option<String>,
+        client_cert_required: bool,
+        max_concurrent_streams: u32,
+        idle_timeout_seconds: u64,
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        let map: DatabaseMap = databases;
+        QuicServer {
+            databases: Arc::new(map),
+            default_database: default_database.to_string(),
+            addr: addr.to_string(),
+            cert_path,
+            key_path,
+            client_ca_cert_path,
+            client_cert_required,
+            max_concurrent_streams,
+            idle_timeout_seconds,
+        }
+    }
+
     pub async fn start(&self) -> Result<()> {
         let addr: std::net::SocketAddr = self
             .addr
