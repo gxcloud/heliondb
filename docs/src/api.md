@@ -107,6 +107,36 @@ pub struct ColumnMeta {
 }
 ```
 
+### `Index` / `IndexMeta`
+
+```rust
+pub struct Index {
+    pub meta: IndexMeta,
+    // entries: BTreeMap<Vec<Datum>, BTreeSet<usize>>,
+}
+
+pub struct IndexMeta {
+    pub name: String,
+    pub columns: Vec<usize>,
+    pub is_unique: bool,
+}
+```
+
+Indexes are automatically created on `PRIMARY KEY` and `UNIQUE` columns.
+User-defined indexes can be added via `CREATE INDEX` SQL or programmatically:
+
+```rust
+use heliondb::storage::btree::{Index, IndexMeta};
+
+// Create a unique index on column 0
+let mut idx = Index::new_unique("my_index", vec![0]);
+idx.insert(&[Datum::Integer(42)], 0)?;
+assert!(idx.contains(&[Datum::Integer(42)]));
+
+// Range scan
+let results: Vec<usize> = idx.scan_from(vec![Datum::Integer(10)]);
+```
+
 ## SQL Parsing
 
 ```rust
@@ -132,3 +162,5 @@ let logical_plan = plan(&stmts[0], &engine.get_tables().await)?;
 - `ALTER USER name [WITH] PASSWORD '...'`
 - `GRANT {SELECT[(cols)]|INSERT[(cols)]|UPDATE[(cols)]|DELETE|ALL} ON table TO user`
 - `REVOKE {SELECT[(cols)]|INSERT[(cols)]|UPDATE[(cols)]|DELETE|ALL} ON table FROM user`
+- `CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (col1, col2, ...)`
+- `DROP INDEX [IF EXISTS] name ON table`

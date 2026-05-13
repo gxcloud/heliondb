@@ -819,3 +819,259 @@ async fn test_concurrent_transactions_conflict() {
     let err = engine.commit(&mut tx2).await.unwrap_err();
     assert!(matches!(err, HelionError::Conflict(_)));
 }
+
+// ── Index Integration Tests ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_pk_auto_index_enforces_uniqueness() {
+    let (engine, _dir) = setup().await;
+    exec(&engine, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)").await;
+
+    // First insert should succeed
+    exec(&engine, "INSERT INTO users VALUES (1, 'Alice')").await;
+
+    // Duplicate PK should fail
+    let stmts = parse("INSERT INTO users VALUES (1, 'Bob')").unwrap();
+    let tables = engine.get_tables().await;
+    let p = plan(&stmts[0], &tables).unwrap();
+    let err = execute(&engine, &p).await.unwrap_err();
+    assert!(matches!(err, HelionError::DuplicateKey { .. }));
+
+    // Non-duplicate insert should succeed
+    exec(&engine, "INSERT INTO users VALUES (2, 'Bob')").await;
+    let r = exec(&engine, "SELECT COUNT(*) FROM users").await;
+    assert_eq!(r.rows[0][0], "2");
+}
+
+#[tokio::test]
+async fn test_pk_enforced_on_update() {
+    let (engine, _dir) = setup().await;
+    exec(&engine, "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)").await;
+    exec(&engine, "INSERT INTO t VALUES (1, 100)").await;
+    exec(&engine, "INSERT INTO t VALUES (2, 200)").await;
+
+    // Update changing PK to existing value should fail
+    let stmts = parse("UPDATE t SET id = 1 WHERE id = 2").unwrap();
+    let tables = engine.get_tables().await;
+    let p = plan(&stmts[0], &tables).unwrap();
+    let err = execute(&engine, &p).await.unwrap_err();
+    assert!(matches!(err, HelionError::DuplicateKey { .. }));
+}
+
+#[tokio::test]
+async fn test_unique_column_auto_index() {
+    let (engine, _dir) = setup().await;
+    exec(
+        &engine,
+        "CREATE TABLE t (id INTEGER, email TEXT UNIQUE)",
+    )
+    .await;
+
+    exec(&engine, "INSERT INTO t VALUES (1, 'a@x.com')").await;
+
+    // Duplicate email should fail
+    let stmts = parse("INSERT INTO t VALUES (2, 'a@x.com')").unwrap();
+    let tables = engine.get_tables().await;
+    let p = plan(&stmts[0], &tables).unwrap();
+    let err = execute(&engine, &p).await.unwrap_err();
+    assert!(matches!(err, HelionError::DuplicateKey { .. }));
+
+    // Different email should succeed
+    exec(&engine, "INSERT INTO t VALUES (2, 'b@x.com')").await;
+}
+
+#[tokio::test]
+async fn test_create_index_sql() {
+    let (engine, _dir) = setup().await;
+    exec(&engine, "CREATE TABLE t (id INTEGER, name TEXT, age INTEGER)").await;
+    exec(&engine, "INSERT INTO t VALUES (1, 'Alice', 30)").await;
+    exec(&engine, "INSERT INTO t VALUES (2, 'Bob', 25)").await;
+
+    // Create index via SQL
+    exec(&engine, "CREATE INDEX idx_age ON t (age)").await;
+
+    // Verify the index exists
+    let tables = engine.get_tables().await;
+    let t = tables.iter().find(|t| t.name == "t").unwrap();
+    assert!(t.indexes.iter().any(|i| i.meta.name == "idx_age"));
+    assert!(!t.indexes.iter().find(|i| i.meta.name == "idx_age").unwrap().meta.is_unique);
+}
+
+#[tokio::test]
+async fn test_create_unique_index_sql() {
+    let (engine, _dir) = setup().await;
+    exec(&engine, "CREATE TABLE t (id INTEGER, email TEXT)").await;
+    exec(&engine, "INSERT INTO t VALUES (1, 'a@x.com')").await;
+
+    // Create unique index (should succeed since data is unique)
+    exec(&engine, "CREATE UNIQUE INDEX uq_email ON t (email)").await;
+
+    // Now duplicate should fail
+    let stmts = parse("INSERT INTO t VALUES (2, 'a@x.com')").unwrap();
+    let tables = engine.get_tables().await;
+    let p = plan(&stmts[0], &tables).unwrap();
+    let err = execute(&engine, &p).await.unwrap_err();
+    assert!(matches!(err, HelionError::DuplicateKey { .. }));
+}
+
+#[tokio::test]
+async fn test_create_unique_index_on_duplicate_data_fails() {
+    let (engine, _dir) = setup().await;
+    exec(&engine, "CREATE TABLE t (id INTEGER, email TEXT)").await;
+    exec(&engine, "INSERT INTO t VALUES (1, 'dup@x.com')").await;
+    exec(&engine, "INSERT INTO t VALUES (2, 'dup@x.com')").await;
+
+    // Creating a unique index on duplicate data should fail
+    let stmts = parse("CREATE UNIQUE INDEX uq_email ON t (email)").unwrap();
+    let tables = engine.get_tables().await;
+    let p = plan(&stmts[0], &tables).unwrap();
+    let err = execute(&engine, &p).await.unwrap_err();
+    assert!(matches!(err, HelionError::DuplicateKey { .. }));
+}
+
+#[tokio::test]
+async fn test_create_index_if_not_exists() {
+    let (engine, _dir) = setup().await;
+    exec(&engine, "CREATE TABLE t (id INTEGER)").await;
+    exec(&engine, "CREATE INDEX idx ON t (id)").await;
+
+    // Should not error
+    exec(&engine, "CREATE INDEX IF NOT EXISTS idx ON t (id)").await;
+
+    // Without IF NOT EXISTS should error
+    let stmts = parse("CREATE INDEX idx ON t (id)").unwrap();
+    let tables = engine.get_tables().await;
+    let p = plan(&stmts[0], &tables).unwrap();
+    let err = execute(&engine, &p).await.unwrap_err();
+    assert!(matches!(err, HelionError::IndexAlreadyExists(_)));
+}
+
+#[tokio::test]
+async fn test_drop_index_sql() {
+    let (engine, _dir) = setup().await;
+    exec(&engine, "CREATE TABLE t (id INTEGER)").await;
+    exec(&engine, "CREATE INDEX idx ON t (id)").await;
+
+    let tables = engine.get_tables().await;
+    assert!(tables[0].indexes.iter().any(|i| i.meta.name == "idx"));
+
+    exec(&engine, "DROP INDEX idx ON t").await;
+
+    let tables = engine.get_tables().await;
+    assert!(!tables[0].indexes.iter().any(|i| i.meta.name == "idx"));
+}
+
+#[tokio::test]
+async fn test_drop_index_if_exists() {
+    let (engine, _dir) = setup().await;
+    exec(&engine, "CREATE TABLE t (id INTEGER)").await;
+
+    // Should not error
+    exec(&engine, "DROP INDEX IF EXISTS nonexistent ON t").await;
+
+    // Without IF EXISTS should error
+    let stmts = parse("DROP INDEX nonexistent ON t").unwrap();
+    let tables = engine.get_tables().await;
+    let p = plan(&stmts[0], &tables).unwrap();
+    let err = execute(&engine, &p).await.unwrap_err();
+    assert!(matches!(err, HelionError::IndexNotFound(_)));
+}
+
+#[tokio::test]
+async fn test_index_accelerates_select() {
+    let (engine, _dir) = setup().await;
+    exec(&engine, "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)").await;
+
+    for i in 0..100 {
+        exec(&engine, &format!("INSERT INTO t VALUES ({}, {})", i, i * 10)).await;
+    }
+
+    // This should use the PK index
+    let r = exec(&engine, "SELECT val FROM t WHERE id = 42").await;
+    assert_eq!(r.rows[0][0], "420");
+
+    // Range scan
+    let r = exec(&engine, "SELECT id FROM t WHERE id >= 95").await;
+    assert_eq!(r.rows.len(), 5);
+}
+
+#[tokio::test]
+async fn test_index_works_after_wal_recovery() {
+    let dir = TempDir::new().unwrap();
+    {
+        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        exec(&engine, "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)").await;
+        exec(&engine, "INSERT INTO t VALUES (1, 100)").await;
+        exec(&engine, "INSERT INTO t VALUES (2, 200)").await;
+        engine.shutdown().await.unwrap();
+    }
+    {
+        let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
+        // PK index should be rebuilt and enforce uniqueness
+        let stmts = parse("INSERT INTO t VALUES (1, 999)").unwrap();
+        let tables = engine.get_tables().await;
+        let p = plan(&stmts[0], &tables).unwrap();
+        let err = execute(&engine, &p).await.unwrap_err();
+        assert!(matches!(err, HelionError::DuplicateKey { .. }));
+
+        // Index should still accelerate queries
+        let r = exec(&engine, "SELECT val FROM t WHERE id = 2").await;
+        assert_eq!(r.rows[0][0], "200");
+        engine.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_composite_index() {
+    let (engine, _dir) = setup().await;
+    exec(
+        &engine,
+        "CREATE TABLE t (a INTEGER, b INTEGER, val INTEGER)",
+    )
+    .await;
+    exec(&engine, "CREATE INDEX idx_ab ON t (a, b)").await;
+
+    exec(&engine, "INSERT INTO t VALUES (1, 10, 100)").await;
+    exec(&engine, "INSERT INTO t VALUES (1, 20, 200)").await;
+    exec(&engine, "INSERT INTO t VALUES (2, 10, 300)").await;
+
+    let r = exec(&engine, "SELECT val FROM t WHERE a = 1 AND b = 20").await;
+    assert_eq!(r.rows[0][0], "200");
+}
+
+#[tokio::test]
+async fn test_index_on_disk_engine() {
+    let dir = TempDir::new().unwrap();
+    {
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+            .await
+            .unwrap();
+        exec(
+            &engine,
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER) ENGINE = disk",
+        )
+        .await;
+        exec(&engine, "INSERT INTO t VALUES (1, 100)").await;
+        exec(&engine, "INSERT INTO t VALUES (2, 200)").await;
+
+        // Duplicate PK should fail even with disk engine
+        let stmts = parse("INSERT INTO t VALUES (1, 999)").unwrap();
+        let tables = engine.get_tables().await;
+        let p = plan(&stmts[0], &tables).unwrap();
+        let err = execute(&engine, &p).await.unwrap_err();
+        assert!(matches!(err, HelionError::DuplicateKey { .. }));
+        engine.shutdown().await.unwrap();
+    }
+    {
+        let mut engine = DatabaseEngine::open_with_default_engine(dir.path(), "memory")
+            .await
+            .unwrap();
+        // After restart, PK index should still enforce uniqueness
+        let stmts = parse("INSERT INTO t VALUES (1, 999)").unwrap();
+        let tables = engine.get_tables().await;
+        let p = plan(&stmts[0], &tables).unwrap();
+        let err = execute(&engine, &p).await.unwrap_err();
+        assert!(matches!(err, HelionError::DuplicateKey { .. }));
+        engine.shutdown().await.unwrap();
+    }
+}

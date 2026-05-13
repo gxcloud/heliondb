@@ -53,12 +53,14 @@
 //!
 //! HelionDB supports a PostgreSQL-compatible subset of SQL:
 //!
-//! - **DDL**: `CREATE TABLE`, `DROP TABLE`
+//! - **DDL**: `CREATE TABLE`, `DROP TABLE`, `CREATE INDEX`, `DROP INDEX`
 //! - **DML**: `SELECT` (with `WHERE`, `ORDER BY`, `LIMIT`, `OFFSET`), `INSERT`, `UPDATE`, `DELETE`
 //! - **Expressions**: Comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`), logical (`AND`, `OR`, `NOT`),
 //!   arithmetic (`+`, `-`, `*`, `/`), `IS NULL`, `IS NOT NULL`, `IN`, `BETWEEN`, `LIKE`
 //! - **Functions**: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `LOWER`, `UPPER`, `LENGTH`,
 //!   `COALESCE`, `IFNULL`, `ABS`, `ROUND`, `UUIDV7`
+//! - **Indexes**: B-tree indexes with O(log n) point lookups and range scans
+//! - **Constraints**: `PRIMARY KEY` and `UNIQUE` enforced at commit time via indexes
 //! - **Data Types**: `INTEGER`, `BIGINT`, `SMALLINT`, `REAL`, `DOUBLE`, `VARCHAR`, `CHAR`,
 //!   `TEXT`, `BOOLEAN`, `DATE`, `TIME`, `TIMESTAMP`, `UUID`, `UUIDV7`, `U_SMALLINT`,
 //!   `U_INTEGER`, `U_BIGINT`

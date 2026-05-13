@@ -58,14 +58,27 @@ HelionDB implements snapshot isolation using version chains.
 - Each logical row is stored as a chain of row versions.
 - A version is visible if it was created before the snapshot, not deleted before the snapshot, and the creator was already committed.
 
+### Indexes
+
+**File**: `src/storage/btree.rs`
+
+B-tree indexes use `std::collections::BTreeMap` for `O(log n)` point lookups and range scans. Each index maps key values (`Vec<Datum>`) to a set of row indices (`BTreeSet<usize>`).
+
+- **Auto-indexing**: Primary key and `UNIQUE` columns get automatic unique indexes at table creation.
+- **User-defined indexes**: Created via `CREATE INDEX` / `DROP INDEX` SQL.
+- **Serialization**: Indexes are part of `Table` and are serialized with it via bincode for WAL checkpoints and disk engine persistence.
+- **Startup rebuild**: After WAL replay, indexes are rebuilt from version chain data to ensure consistency.
+
 ### Optimistic Concurrency Control
 
 When a transaction commits:
 
 1. Conflicts are checked against the snapshot active set.
-2. Old versions are marked with `txid_max`.
-3. New versions are appended.
-4. All writes are appended to the WAL.
+2. Unique constraints are checked against all unique indexes.
+3. Old versions are marked with `txid_max`.
+4. New versions are appended.
+5. All writes are appended to the WAL.
+6. Indexes are updated atomically with version chains.
 
 ### WAL
 
@@ -115,6 +128,8 @@ A background task writes a full snapshot of all tables periodically. On restart,
 
 - `execute(engine, plan)` executes without permission checks.
 - `execute_as(engine, plan, current_user)` executes with column-level permission checks.
+- **Index-aware SELECT**: The executor pattern-matches `WHERE` clauses against available indexes. For point lookups (`col = val`), range scans (`col > val`, `BETWEEN`), and `IN` lists, rows are fetched via the B-tree index instead of scanning all version chains. Falls back to full scan when no index matches.
+- **Index DDL**: `CREATE INDEX` and `DROP INDEX` are executed by modifying the table's index list and repopulating from existing data.
 
 ## Layer 4: Server & Protocol
 

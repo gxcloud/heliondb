@@ -7,8 +7,13 @@ HelionDB is a fast SQL database with PostgreSQL-compatible syntax, selectable pe
 - Selectable storage engines: `memory` and `disk`
 - PostgreSQL-compatible SQL via `sqlparser-rs`
 - MVCC concurrency with snapshot isolation
+- B-tree indexes with point lookups, range scans, and composite keys
+- Automatic unique index on `PRIMARY KEY` and `UNIQUE` columns
+- User-defined indexes via `CREATE INDEX` / `DROP INDEX`
+- Unique constraint enforcement at commit time
 - Async WAL persistence with CRC32 integrity checks
 - Crash recovery from WAL replay and checkpoints
+- Index-aware query optimization for WHERE, ORDER BY, IN, BETWEEN
 - QUIC transport via `quinn`
 
 ## SQL Support
@@ -29,6 +34,10 @@ HelionDB is a fast SQL database with PostgreSQL-compatible syntax, selectable pe
 | Scalar functions (`LOWER`, `UPPER`, `LENGTH`, `COALESCE`, `IFNULL`, `ABS`, `ROUND`) | ✅ |
 | `UUIDV7()` | ✅ |
 | `PRIMARY KEY`, `NOT NULL`, `UNIQUE` | ✅ |
+| `CREATE [UNIQUE] INDEX name ON table (cols)` | ✅ |
+| `DROP INDEX [IF EXISTS] name ON table` | ✅ |
+| Unique constraint enforcement | ✅ |
+| Index-accelerated `WHERE`, `ORDER BY`, `IN`, `BETWEEN` | ✅ |
 | Implicit type coercion | ✅ |
 | Transactions (`BEGIN`/`COMMIT`/`ROLLBACK`) | ✅ |
 | MVCC snapshot isolation | ✅ |

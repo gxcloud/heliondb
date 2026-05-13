@@ -105,7 +105,7 @@ Any QUIC-capable client can connect. The protocol uses length-prefixed bincode m
 CREATE TABLE users (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
-    email VARCHAR(255),
+    email VARCHAR(255) UNIQUE,
     age INTEGER DEFAULT 0
 );
 CREATE TABLE archive_users (id INTEGER, name TEXT) ENGINE = disk;
@@ -115,6 +115,52 @@ DROP TABLE IF EXISTS users;
 
 ALTER TABLE users ENGINE = memory;
 ALTER TABLE archive_users ENGINE = disk;
+```
+
+### Index Management
+
+HelionDB automatically creates unique indexes on `PRIMARY KEY` and `UNIQUE` columns.
+You can also create user-defined indexes to accelerate queries:
+
+```sql
+-- Automatically created on PRIMARY KEY columns
+CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);
+
+-- Manual index creation
+CREATE INDEX idx_products_price ON products (price);
+CREATE UNIQUE INDEX idx_products_name ON products (name);
+
+-- Composite index (multiple columns)
+CREATE INDEX idx_products_name_price ON products (name, price);
+
+-- Conditional creation
+CREATE INDEX IF NOT EXISTS idx_products_price ON products (price);
+
+-- Drop indexes
+DROP INDEX idx_products_price ON products;
+DROP INDEX IF EXISTS idx_products_price ON products;
+```
+
+Indexes accelerate:
+
+- **Point lookups**: `WHERE id = 42`
+- **Range scans**: `WHERE price > 100` and `WHERE price BETWEEN 10 AND 50`
+- **IN lists**: `WHERE id IN (1, 2, 3)`
+- **Sorted queries**: `ORDER BY price` (B-tree maintains sort order)
+
+Without an index, queries fall back to full table scans.
+
+### Unique Constraint Enforcement
+
+`PRIMARY KEY` and `UNIQUE` constraints are enforced at commit time:
+
+```sql
+CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE);
+
+INSERT INTO users VALUES (1, 'alice@test.com');   -- OK
+INSERT INTO users VALUES (1, 'bob@test.com');      -- ERROR: duplicate key on pk_users
+INSERT INTO users VALUES (2, 'alice@test.com');    -- ERROR: duplicate key on uq_users_email
+UPDATE users SET id = 1 WHERE email = 'bob@test.com'; -- ERROR if id=1 exists
 ```
 
 ### Data Manipulation
