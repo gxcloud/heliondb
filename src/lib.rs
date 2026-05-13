@@ -81,6 +81,7 @@ pub use sql::planner::{plan, LogicalPlan};
 pub use storage::engine::DatabaseEngine;
 pub use storage::mvcc::{Transaction, TransactionStatus, WriteEntry, WriteOp};
 pub use storage::permissions::{Permission, PermissionStore};
+pub use storage::btree::{Index, IndexMeta};
 pub use storage::table::Table;
 pub use storage::types::{ColumnMeta, DataType, Datum, Row};
 pub use storage::users::{User, UserStore};

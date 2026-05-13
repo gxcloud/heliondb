@@ -180,8 +180,18 @@ impl DatabaseEngine {
         let permissions = replay_permissions_from_wal(data_dir).await?;
         let wal_writer = Arc::new(Mutex::new(WalWriter::open(data_dir).await?));
 
+        // Rebuild indexes from version chain data (indexes are not stored
+        // in individual WAL records, only as part of checkpoint snapshots)
+        let mut rebuilt_tables = tables;
+        for table in &mut rebuilt_tables {
+            if table.indexes.iter().any(|i| i.is_empty()) {
+                table.rebuild_indexes();
+                debug!("Rebuilt indexes for table '{}'", table.name);
+            }
+        }
+
         let engine = DatabaseEngine {
-            tables: Arc::new(RwLock::new(tables)),
+            tables: Arc::new(RwLock::new(rebuilt_tables)),
             catalog,
             mvcc: MvccStore::with_start_id(max_txid.map(|id| id + 1).unwrap_or(1)),
             wal_writer,
