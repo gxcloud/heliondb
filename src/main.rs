@@ -151,6 +151,8 @@ async fn main() -> anyhow::Result<()> {
         &listen,
         cert_path,
         key_path,
+        cfg.tls.client_ca_cert_path.clone(),
+        cfg.tls.client_cert_required,
         max_streams,
         idle_timeout,
     );

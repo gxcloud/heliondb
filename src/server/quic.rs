@@ -1,5 +1,7 @@
+use quinn::crypto::rustls::QuicServerConfig;
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::server::WebPkiClientVerifier;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -15,10 +17,13 @@ pub struct QuicServer {
     addr: String,
     cert_path: Option<String>,
     key_path: Option<String>,
+    client_ca_cert_path: Option<String>,
+    client_cert_required: bool,
     max_concurrent_streams: u32,
     idle_timeout_seconds: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl QuicServer {
     pub fn new(
         engine: DatabaseEngine,
@@ -34,18 +39,21 @@ impl QuicServer {
             addr: addr.to_string(),
             cert_path,
             key_path,
+            client_ca_cert_path: None,
+            client_cert_required: false,
             max_concurrent_streams: 100,
             idle_timeout_seconds: 30,
         }
     }
 
-    /// Create a server with multiple named databases and transport config.
     pub fn with_databases(
         databases: HashMap<String, DatabaseEngine>,
         default_database: &str,
         addr: &str,
         cert_path: Option<String>,
         key_path: Option<String>,
+        client_ca_cert_path: Option<String>,
+        client_cert_required: bool,
         max_concurrent_streams: u32,
         idle_timeout_seconds: u64,
     ) -> Self {
@@ -59,6 +67,8 @@ impl QuicServer {
             addr: addr.to_string(),
             cert_path,
             key_path,
+            client_ca_cert_path,
+            client_cert_required,
             max_concurrent_streams,
             idle_timeout_seconds,
         }
@@ -86,6 +96,16 @@ impl QuicServer {
                 .join(", "),
             self.default_database
         );
+        if self.client_ca_cert_path.is_some() {
+            info!(
+                "Client certificate authentication: {}",
+                if self.client_cert_required {
+                    "required"
+                } else {
+                    "optional"
+                }
+            );
+        }
 
         while let Some(incoming) = endpoint.accept().await {
             let databases = self.databases.clone();
@@ -113,10 +133,47 @@ impl QuicServer {
                 .unwrap(),
         ));
 
-        let mut server_config = ServerConfig::with_single_cert(cert, key)
-            .map_err(|e| HelionError::Protocol(format!("TLS config error: {}", e)))?;
-        server_config.transport_config(Arc::new(transport));
+        let rustls_config: rustls::ServerConfig = if let Some(ca_path) = &self.client_ca_cert_path {
+            let ca_bytes = std::fs::read(ca_path).map_err(|e| HelionError::Io(e.to_string()))?;
+            let ca_certs: Vec<CertificateDer<'static>> =
+                rustls_pemfile::certs(&mut ca_bytes.as_slice())
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(|e| HelionError::Io(e.to_string()))?;
 
+            let mut root_store = rustls::RootCertStore::empty();
+            for ca_cert in ca_certs {
+                root_store
+                    .add(ca_cert)
+                    .map_err(|e| HelionError::Protocol(format!("CA cert error: {}", e)))?;
+            }
+
+            let builder = WebPkiClientVerifier::builder(Arc::new(root_store));
+            let verifier = if self.client_cert_required {
+                builder
+                    .build()
+                    .map_err(|e| HelionError::Protocol(format!("Client verifier error: {}", e)))?
+            } else {
+                builder
+                    .allow_unauthenticated()
+                    .build()
+                    .map_err(|e| HelionError::Protocol(format!("Client verifier error: {}", e)))?
+            };
+
+            rustls::ServerConfig::builder()
+                .with_client_cert_verifier(verifier)
+                .with_single_cert(cert, key)
+                .map_err(|e| HelionError::Protocol(format!("TLS config error: {}", e)))?
+        } else {
+            rustls::ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(cert, key)
+                .map_err(|e| HelionError::Protocol(format!("TLS config error: {}", e)))?
+        };
+
+        let quic_server_config = QuicServerConfig::try_from(rustls_config)
+            .map_err(|e| HelionError::Protocol(format!("QUIC config error: {}", e)))?;
+        let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_server_config));
+        server_config.transport_config(Arc::new(transport));
         Ok(server_config)
     }
 

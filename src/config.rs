@@ -47,6 +47,12 @@ fn default_idle_timeout() -> u64 {
 pub struct TlsConfig {
     pub cert_path: Option<String>,
     pub key_path: Option<String>,
+    /// Path to CA certificate PEM file for verifying client certificates (mTLS).
+    #[serde(default)]
+    pub client_ca_cert_path: Option<String>,
+    /// Require valid client certificate for all connections.
+    #[serde(default)]
+    pub client_cert_required: bool,
 }
 
 // ── Storage Section ──────────────────────────────────────────────────
@@ -169,6 +175,16 @@ impl std::fmt::Display for Config {
             f,
             "  key_path:                {}",
             self.tls.key_path.as_deref().unwrap_or("(auto)")
+        )?;
+        writeln!(
+            f,
+            "  client_ca_cert_path:     {}",
+            self.tls.client_ca_cert_path.as_deref().unwrap_or("(none)")
+        )?;
+        writeln!(
+            f,
+            "  client_cert_required:    {}",
+            self.tls.client_cert_required
         )?;
         writeln!(f, "Storage:")?;
         writeln!(f, "  data_dir:                {}", self.storage.data_dir)?;

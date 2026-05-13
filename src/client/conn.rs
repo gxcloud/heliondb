@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Connection, Endpoint};
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use tracing::debug;
 
 use crate::error::HelionError;
@@ -17,8 +17,13 @@ pub struct ClientConn {
     password: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl ClientConn {
     /// Connect to a HelionDB server.
+    ///
+    /// * `client_certs` — optional `(Vec<CertificateDer>, PrivateKeyDer)` for TLS client
+    ///   certificate authentication (mTLS). When provided, the server may use the
+    ///   certificate's Common Name for password-less authentication.
     pub async fn connect(
         addr: &str,
         server_name: &str,
@@ -26,24 +31,42 @@ impl ClientConn {
         password: &str,
         database: &str,
         insecure: bool,
+        client_certs: Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)>,
     ) -> std::result::Result<Self, HelionError> {
         let endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())
             .map_err(|e| HelionError::Protocol(format!("Endpoint error: {}", e)))?;
 
-        let tls_config = if insecure {
-            let tls = rustls::ClientConfig::builder()
+        let tls_config: Arc<rustls::ClientConfig> = if let Some((certs, key)) = client_certs {
+            if insecure {
+                rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(SkipServerVerification::new())
+                    .with_client_auth_cert(certs, key)
+                    .map_err(|e| HelionError::Protocol(format!("Client cert error: {}", e)))?
+            } else {
+                let root_store = rustls::RootCertStore {
+                    roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+                };
+                rustls::ClientConfig::builder()
+                    .with_root_certificates(root_store)
+                    .with_client_auth_cert(certs, key)
+                    .map_err(|e| HelionError::Protocol(format!("Client cert error: {}", e)))?
+            }
+            .into()
+        } else if insecure {
+            rustls::ClientConfig::builder()
                 .dangerous()
                 .with_custom_certificate_verifier(SkipServerVerification::new())
-                .with_no_client_auth();
-            Arc::new(tls)
+                .with_no_client_auth()
+                .into()
         } else {
             let root_store = rustls::RootCertStore {
                 roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
             };
-            let tls = rustls::ClientConfig::builder()
+            rustls::ClientConfig::builder()
                 .with_root_certificates(root_store)
-                .with_no_client_auth();
-            Arc::new(tls)
+                .with_no_client_auth()
+                .into()
         };
 
         let quic_client_config = QuicClientConfig::try_from(tls_config.as_ref().clone())

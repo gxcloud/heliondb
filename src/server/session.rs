@@ -10,10 +10,8 @@ use crate::sql::parser::parse;
 use crate::sql::planner::plan;
 use crate::storage::engine::DatabaseEngine;
 
-/// Map of database name to database engine.
 pub type DatabaseMap = std::collections::HashMap<String, Arc<DatabaseEngine>>;
 
-/// Handle an incoming QUIC connection.
 pub async fn handle_connection(
     connecting: Connecting,
     databases: Arc<DatabaseMap>,
@@ -26,6 +24,12 @@ pub async fn handle_connection(
     let remote = connection.remote_address();
     info!("New connection from {}", remote);
 
+    // Extract TLS peer certificate (DER bytes of the end-entity cert)
+    let peer_cert_der: Option<Vec<u8>> = connection
+        .peer_identity()
+        .and_then(|id| id.downcast::<Vec<Vec<u8>>>().ok())
+        .and_then(|chain| chain.into_iter().next());
+
     let sessions = Arc::new(SessionManager::new());
 
     loop {
@@ -34,10 +38,17 @@ pub async fn handle_connection(
                 let databases = databases.clone();
                 let default_db = default_database.clone();
                 let sessions = sessions.clone();
+                let peer_cert = peer_cert_der.clone();
                 tokio::spawn(async move {
-                    if let Err(e) =
-                        handle_stream(&mut send, &mut recv, &databases, &default_db, &sessions)
-                            .await
+                    if let Err(e) = handle_stream(
+                        &mut send,
+                        &mut recv,
+                        &databases,
+                        &default_db,
+                        &sessions,
+                        peer_cert,
+                    )
+                    .await
                     {
                         error!("Stream error: {}", e);
                     }
@@ -57,16 +68,33 @@ pub async fn handle_connection(
     Ok(())
 }
 
+/// Extract the Common Name from a DER-encoded X.509 certificate.
+fn extract_cn_from_der(der: &[u8]) -> Option<String> {
+    use x509_parser::prelude::*;
+    let (_, cert) = X509Certificate::from_der(der).ok()?;
+    for attr in cert.subject().iter_attributes() {
+        if attr.attr_type().to_string().contains("CN") {
+            if let Ok(value) = attr.as_str() {
+                let trimmed = value.trim().to_string();
+                if !trimmed.is_empty() && trimmed.len() <= 255 {
+                    return Some(trimmed);
+                }
+            }
+        }
+    }
+    None
+}
+
 async fn handle_stream(
     send: &mut quinn::SendStream,
     recv: &mut quinn::RecvStream,
     databases: &DatabaseMap,
     default_database: &str,
     sessions: &Arc<SessionManager>,
+    peer_cert_der: Option<Vec<u8>>,
 ) -> Result<()> {
     let msg = read_client_message(send, recv).await?;
 
-    // Handle auth — extract database, select the right engine
     let (username, token, mut engine) = match &msg {
         ClientMessage::Auth {
             username,
@@ -81,14 +109,46 @@ async fn handle_stream(
             let engine = databases.get(db_name).ok_or_else(|| {
                 HelionError::Protocol(format!("Database '{}' not found", db_name))
             })?;
-            if engine.verify_user(username, password).await {
-                let token = sessions.create_session(username);
+
+            // Determine username and authenticate
+            let (authenticated_username, authenticated) = if let Some(ref cert_der) = peer_cert_der
+            {
+                // Try certificate-based authentication
+                if let Some(cn) = extract_cn_from_der(cert_der) {
+                    if engine.user_exists(&cn).await {
+                        info!("User '{}' authenticated via TLS client certificate", cn);
+                        (cn, true)
+                    } else {
+                        warn!("Certificate CN '{}' does not match any database user", cn);
+                        // Fall through to password auth
+                        (
+                            username.clone(),
+                            engine.verify_user(username, password).await,
+                        )
+                    }
+                } else {
+                    // No CN in certificate — fall through to password auth
+                    (
+                        username.clone(),
+                        engine.verify_user(username, password).await,
+                    )
+                }
+            } else {
+                // No client certificate — password auth only
+                (
+                    username.clone(),
+                    engine.verify_user(username, password).await,
+                )
+            };
+
+            if authenticated {
+                let token = sessions.create_session(&authenticated_username);
                 info!(
                     "User '{}' authenticated to database '{}'",
-                    username, db_name
+                    authenticated_username, db_name
                 );
                 send_auth_response(send, true, token, None).await?;
-                (username.clone(), token, engine.clone())
+                (authenticated_username, token, engine.clone())
             } else {
                 warn!("Authentication failed for user '{}'", username);
                 send_auth_response(send, false, 0, Some("Invalid credentials".into())).await?;
@@ -114,7 +174,6 @@ async fn handle_stream(
         let sql = match msg {
             ClientMessage::Query { ref sql, .. } => sql.clone(),
             _ => {
-                // Non-Query messages are handled normally
                 let server_msg = process_authenticated_message(
                     &msg,
                     engine.as_ref(),
@@ -131,7 +190,6 @@ async fn handle_stream(
         let sql_trimmed = sql.trim().trim_end_matches(';').trim().to_string();
         let upper = sql_trimmed.to_uppercase();
 
-        // SHOW DATABASES — needs the database map
         if upper == "SHOW DATABASES" {
             let mut db_names: Vec<String> = databases.keys().cloned().collect();
             db_names.sort();
@@ -149,7 +207,6 @@ async fn handle_stream(
             continue;
         }
 
-        // USE database — validate at session layer, then swap engine after execution
         let db_name = if upper.starts_with("USE ") {
             let name = sql_trimmed[3..].trim().to_string();
             if !databases.contains_key(&name) {
@@ -189,7 +246,6 @@ async fn process_authenticated_message(
     token: &u64,
     username: &str,
 ) -> ServerMessage {
-    // Verify token
     if sessions
         .verify_token(*token)
         .map(|u| u != username)
