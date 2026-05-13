@@ -2,7 +2,7 @@
 
 ## Overview
 
-HelionDB is a SQL database with PostgreSQL-compatible syntax, MVCC concurrency control, async WAL persistence, pluggable storage engines, and QUIC transport.
+HelionDB is a networked SQL database with pluggable per-table storage engines, MVCC snapshot isolation, async WAL persistence, and QUIC transport.
 
 ```text
                     ┌─────────────────────┐
@@ -18,6 +18,7 @@ HelionDB is a SQL database with PostgreSQL-compatible syntax, MVCC concurrency c
                     ┌─────────▼───────────┐
                     │      Server         │
                     │  (quinn + session)  │
+                    │  (multi-database)   │
                     └─────────┬───────────┘
                               │
                     ┌─────────▼───────────┐
@@ -33,6 +34,7 @@ HelionDB is a SQL database with PostgreSQL-compatible syntax, MVCC concurrency c
                     ┌─────────▼───────────┐
                     │   Storage Engine    │
                     │  MVCC + WAL + auth  │
+                    │  disk / memory      │
                     └─────────────────────┘
 ```
 
@@ -43,8 +45,8 @@ HelionDB is a SQL database with PostgreSQL-compatible syntax, MVCC concurrency c
 **Files**: `src/storage/catalog.rs`, `src/storage/engine_trait.rs`, `src/storage/engines/*`
 
 - The catalog stores table-to-engine metadata plus the database default engine.
-- `memory` keeps tables in RAM.
-- `disk` stores each table under its own directory on disk.
+- `disk` (primary) persists tables via append-only delta files with periodic compaction.
+- `memory` keeps tables in RAM (ephemeral, for caching or temp data).
 - `ALTER TABLE ... ENGINE = ...` migrates a table by snapshotting, restoring, and atomically switching the catalog entry.
 
 ### MVCC
@@ -87,6 +89,17 @@ When a transaction commits:
 - Append-only binary file with length-prefixed, bincode-serialized records.
 - Each record has a CRC32 checksum.
 - On startup, WAL is replayed to reconstruct full state.
+
+### Disk Engine (Delta Files)
+
+**File**: `src/storage/engines/disk.rs`
+
+The disk engine uses an append-only delta design for O(#changes) write cost instead of O(total rows):
+
+- Each mutation appends a `delta_{txid}.bin` file containing only the changed rows.
+- A `base_{txid}.bin` snapshot is written periodically (compaction) for fast startup.
+- On startup, the latest base is loaded and incremental deltas applied.
+- Per-table atomicity via tmp+rename for each delta file.
 
 ### Checkpoints
 

@@ -1,20 +1,21 @@
 # HelionDB
 
-HelionDB is a fast SQL database with PostgreSQL-compatible syntax, selectable per-table storage engines, async WAL persistence, and QUIC transport.
+HelionDB is a networked SQL database with pluggable per-table storage engines, MVCC snapshot isolation, async WAL persistence, and QUIC transport.
 
 ## Highlights
 
-- Selectable storage engines: `memory` and `disk`
+- Selectable per-table storage engines: `disk` (append-only delta persistence) and `memory`
 - PostgreSQL-compatible SQL via `sqlparser-rs`
-- MVCC concurrency with snapshot isolation
+- MVCC concurrency with snapshot isolation — concurrent reads never block
 - B-tree indexes with point lookups, range scans, and composite keys
 - Automatic unique index on `PRIMARY KEY` and `UNIQUE` columns
 - User-defined indexes via `CREATE INDEX` / `DROP INDEX`
 - Unique constraint enforcement at commit time
 - Async WAL persistence with CRC32 integrity checks
-- Crash recovery from WAL replay and checkpoints
+- Crash recovery from WAL replay, delta-based disk engine, and checkpoints
 - Index-aware query optimization for WHERE, ORDER BY, IN, BETWEEN
-- QUIC transport via `quinn`
+- QUIC transport via `quinn` with TLS 1.3
+- Multi-database support with per-database engines, WALs, and catalogs
 
 ## SQL Support
 

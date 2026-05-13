@@ -1,18 +1,20 @@
-//! HelionDB — An extremely fast in-memory SQL database with PostgreSQL-compatible syntax,
+//! HelionDB — A networked SQL database with pluggable storage engines, MVCC snapshot isolation,
 //! async WAL persistence, and QUIC transport.
 //!
 //! # Architecture
 //!
-//! HelionDB is built as a layered architecture:
+//! HelionDB is built as a layered architecture. The primary deployment is as a networked database
+//! server, but it can also be embedded as a library:
 //!
-//! - **Storage Layer**: In-memory MVCC engine with snapshot isolation, version-chain row storage,
-//!   and optimistic concurrency control. All mutations are asynchronously persisted to a
-//!   write-ahead log (WAL) with configurable durability.
+//! - **Network Layer**: QUIC-based server (via `quinn`) with a custom binary protocol, supporting
+//!   hundreds of concurrent connections with true concurrent reads via MVCC snapshot isolation.
 //! - **SQL Layer**: PostgreSQL-compatible SQL parser (via `sqlparser-rs`) and a logical query planner.
 //! - **Executor Layer**: Expression evaluator and physical operators for executing queries against
-//!   the storage engine.
-//! - **Network Layer**: QUIC-based server (via `quinn`) with a custom binary protocol.
-//! - **Client Layer**: Async Rust client library and interactive CLI shell.
+//!   storage engines.
+//! - **Storage Layer**: Pluggable storage engines (`disk` with append-only delta persistence,
+//!   `memory` for ephemeral workloads) with MVCC snapshot isolation, version-chain row storage,
+//!   and optimistic concurrency control. All mutations are persisted to a write-ahead log (WAL)
+//!   with configurable durability and crash recovery.
 //!
 //! # Quick Start
 //!

@@ -1,16 +1,17 @@
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing::{error, info};
 
 use crate::error::{HelionError, Result};
-use crate::server::session::handle_connection;
+use crate::server::session::{handle_connection, DatabaseMap};
 use crate::storage::engine::DatabaseEngine;
 
 pub struct QuicServer {
-    engine: Arc<Mutex<DatabaseEngine>>,
+    databases: Arc<DatabaseMap>,
+    default_database: String,
     addr: String,
     cert_path: Option<String>,
     key_path: Option<String>,
@@ -23,8 +24,32 @@ impl QuicServer {
         cert_path: Option<String>,
         key_path: Option<String>,
     ) -> Self {
+        let mut databases = HashMap::new();
+        databases.insert("default".to_string(), Arc::new(engine));
         QuicServer {
-            engine: Arc::new(Mutex::new(engine)),
+            databases: Arc::new(databases),
+            default_database: "default".to_string(),
+            addr: addr.to_string(),
+            cert_path,
+            key_path,
+        }
+    }
+
+    /// Create a server with multiple named databases.
+    pub fn with_databases(
+        databases: HashMap<String, DatabaseEngine>,
+        default_database: &str,
+        addr: &str,
+        cert_path: Option<String>,
+        key_path: Option<String>,
+    ) -> Self {
+        let map: DatabaseMap = databases
+            .into_iter()
+            .map(|(k, v)| (k, Arc::new(v)))
+            .collect();
+        QuicServer {
+            databases: Arc::new(map),
+            default_database: default_database.to_string(),
             addr: addr.to_string(),
             cert_path,
             key_path,
@@ -44,11 +69,21 @@ impl QuicServer {
             .map_err(|e| HelionError::Protocol(format!("Failed to bind: {}", e)))?;
 
         info!("HelionDB listening on quic://{}", addr);
+        info!(
+            "Databases: {} (default: {})",
+            self.databases
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.default_database
+        );
 
         while let Some(incoming) = endpoint.accept().await {
-            let engine = self.engine.clone();
+            let databases = self.databases.clone();
+            let default_db = self.default_database.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle_incoming(incoming, engine).await {
+                if let Err(e) = handle_incoming(incoming, databases, default_db).await {
                     error!("Connection error: {}", e);
                 }
             });
@@ -118,10 +153,14 @@ impl QuicServer {
     }
 }
 
-async fn handle_incoming(incoming: Incoming, engine: Arc<Mutex<DatabaseEngine>>) -> Result<()> {
+async fn handle_incoming(
+    incoming: Incoming,
+    databases: Arc<DatabaseMap>,
+    default_database: String,
+) -> Result<()> {
     let connecting = incoming
         .accept()
         .map_err(|e| HelionError::Protocol(format!("Accept error: {}", e)))?;
 
-    handle_connection(connecting, engine).await
+    handle_connection(connecting, databases, default_database).await
 }

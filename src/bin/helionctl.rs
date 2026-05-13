@@ -32,6 +32,9 @@ struct Args {
     #[arg(long, default_value = "heliondb.local", help = "TLS server name (SNI)")]
     server_name: String,
 
+    #[arg(long, short = 'd', default_value = "default", help = "Database name")]
+    database: String,
+
     #[arg(
         long,
         help = "Skip TLS certificate verification (for self-signed certs)"
@@ -61,6 +64,7 @@ async fn main() -> anyhow::Result<()> {
         &args.server_name,
         &args.user,
         &args.password,
+        &args.database,
         args.insecure,
     )
     .await?;

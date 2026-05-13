@@ -46,6 +46,7 @@ Each message is framed as a 4-byte big-endian length prefix followed by a bincod
 Auth {
     username: String,
     password: String,
+    database: String,
 }
 ```
 

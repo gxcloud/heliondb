@@ -4,16 +4,17 @@
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org)
 [![Docs](https://img.shields.io/badge/docs-mdBook-2ea44f)](https://gxcloud.github.io/heliondb/)
 
-HelionDB is a SQL database with PostgreSQL-compatible syntax, per-table storage engines, MVCC snapshot isolation, async WAL persistence, and QUIC transport.
+HelionDB is a networked SQL database with pluggable per-table storage engines, MVCC snapshot isolation, async WAL persistence, and QUIC transport.
 
 ## What It Offers
 
-- `memory` and `disk` storage engines on a per-table basis
+- `disk` and `memory` storage engines, selectable per table
 - PostgreSQL-flavored SQL parsing with custom HelionDB statements
-- MVCC with optimistic concurrency control
-- Async write-ahead logging and checkpoint recovery
-- QUIC server transport with TLS 1.3
+- MVCC with optimistic concurrency control and snapshot isolation
+- Async write-ahead logging, delta-based persistence, and checkpoint recovery
+- QUIC server transport with TLS 1.3, supporting hundreds of concurrent connections
 - Column-level permissions and user management
+- Multi-database support with isolated engines, WALs, and catalogs
 
 ## Documentation
 

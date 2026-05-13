@@ -1,7 +1,6 @@
 use quinn::Connecting;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::error::{HelionError, Result};
 use crate::executor::ops::execute_as;
@@ -11,10 +10,14 @@ use crate::sql::parser::parse;
 use crate::sql::planner::plan;
 use crate::storage::engine::DatabaseEngine;
 
+/// Map of database name to database engine.
+pub type DatabaseMap = std::collections::HashMap<String, Arc<DatabaseEngine>>;
+
 /// Handle an incoming QUIC connection.
 pub async fn handle_connection(
     connecting: Connecting,
-    engine: Arc<Mutex<DatabaseEngine>>,
+    databases: Arc<DatabaseMap>,
+    default_database: String,
 ) -> Result<()> {
     let connection = connecting
         .await
@@ -28,10 +31,14 @@ pub async fn handle_connection(
     loop {
         match connection.accept_bi().await {
             Ok((mut send, mut recv)) => {
-                let engine = engine.clone();
+                let databases = databases.clone();
+                let default_db = default_database.clone();
                 let sessions = sessions.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = handle_stream(&mut send, &mut recv, &engine, &sessions).await {
+                    if let Err(e) =
+                        handle_stream(&mut send, &mut recv, &databases, &default_db, &sessions)
+                            .await
+                    {
                         error!("Stream error: {}", e);
                     }
                 });
@@ -53,20 +60,35 @@ pub async fn handle_connection(
 async fn handle_stream(
     send: &mut quinn::SendStream,
     recv: &mut quinn::RecvStream,
-    engine: &Arc<Mutex<DatabaseEngine>>,
+    databases: &DatabaseMap,
+    default_database: &str,
     sessions: &Arc<SessionManager>,
 ) -> Result<()> {
     let msg = read_client_message(send, recv).await?;
 
-    // Handle auth
-    let (username, token) = match &msg {
-        ClientMessage::Auth { username, password } => {
-            let engine = engine.lock().await;
+    // Handle auth — extract database, select the right engine
+    let (username, token, engine) = match &msg {
+        ClientMessage::Auth {
+            username,
+            password,
+            database,
+        } => {
+            let db_name = if database.is_empty() {
+                default_database
+            } else {
+                database.as_str()
+            };
+            let engine = databases.get(db_name).ok_or_else(|| {
+                HelionError::Protocol(format!("Database '{}' not found", db_name))
+            })?;
             if engine.verify_user(username, password).await {
                 let token = sessions.create_session(username);
-                info!("User '{}' authenticated successfully", username);
+                info!(
+                    "User '{}' authenticated to database '{}'",
+                    username, db_name
+                );
                 send_auth_response(send, true, token, None).await?;
-                (username.clone(), token)
+                (username.clone(), token, engine.clone())
             } else {
                 warn!("Authentication failed for user '{}'", username);
                 send_auth_response(send, false, 0, Some("Invalid credentials".into())).await?;
@@ -90,7 +112,7 @@ async fn handle_stream(
         };
 
         let server_msg =
-            process_authenticated_message(msg, engine, sessions, &token, &username).await;
+            process_authenticated_message(msg, engine.as_ref(), sessions, &token, &username).await;
         send_server_message(send, &server_msg).await?;
     }
 
@@ -99,7 +121,7 @@ async fn handle_stream(
 
 async fn process_authenticated_message(
     msg: ClientMessage,
-    engine: &Arc<Mutex<DatabaseEngine>>,
+    engine: &DatabaseEngine,
     sessions: &SessionManager,
     token: &u64,
     username: &str,
@@ -147,16 +169,15 @@ async fn process_authenticated_message(
 
 async fn execute_sql_as(
     sql: &str,
-    engine: &Arc<Mutex<DatabaseEngine>>,
+    engine: &DatabaseEngine,
     username: Option<&str>,
 ) -> Result<crate::executor::ops::QueryResult> {
-    let engine = engine.lock().await;
     let stmts = parse(sql)?;
     let mut last_result = None;
     for stmt in &stmts {
         let tables = engine.get_tables().await;
         let logical_plan = plan(stmt, &tables)?;
-        let result = execute_as(&engine, &logical_plan, username).await?;
+        let result = execute_as(engine, &logical_plan, username).await?;
         last_result = Some(result);
     }
     last_result.ok_or_else(|| HelionError::Internal("No statements executed".into()))
@@ -236,5 +257,3 @@ async fn send_server_message(send: &mut quinn::SendStream, msg: &ServerMessage) 
         .map_err(|e| HelionError::Protocol(format!("Write error: {}", e)))?;
     Ok(())
 }
-
-use tracing::warn;

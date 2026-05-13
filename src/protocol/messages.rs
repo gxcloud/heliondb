@@ -12,8 +12,12 @@ pub enum ClientMessage {
         params: Vec<String>,
         token: u64,
     },
-    /// Authenticate with username and password
-    Auth { username: String, password: String },
+    /// Authenticate with username, password, and database
+    Auth {
+        username: String,
+        password: String,
+        database: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,13 +67,19 @@ mod tests {
         let msg = ClientMessage::Auth {
             username: "alice".into(),
             password: "secret".into(),
+            database: "mydb".into(),
         };
         let bytes = bincode::serialize(&msg).unwrap();
         let deserialized: ClientMessage = bincode::deserialize(&bytes).unwrap();
         match deserialized {
-            ClientMessage::Auth { username, password } => {
+            ClientMessage::Auth {
+                username,
+                password,
+                database,
+            } => {
                 assert_eq!(username, "alice");
                 assert_eq!(password, "secret");
+                assert_eq!(database, "mydb");
             }
             _ => panic!("Wrong message type"),
         }

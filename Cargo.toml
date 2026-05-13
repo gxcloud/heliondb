@@ -2,11 +2,11 @@
 name = "heliondb"
 version = "0.1.0"
 edition = "2021"
-description = "An extremely fast in-memory SQL database with PostgreSQL-compatible syntax, async WAL persistence, and QUIC transport."
+description = "A SQL database with pluggable storage engines, MVCC, async WAL, and QUIC transport."
 authors = ["Alexander Gauss <alexgauss@users.noreply.github.com>"]
 license = "MIT"
 repository = "https://github.com/gxcloud/heliondb"
-keywords = ["database", "sql", "in-memory", "quic", "tokio"]
+keywords = ["database", "sql", "storage-engines", "quic", "tokio"]
 categories = ["database", "network"]
 
 [dependencies]

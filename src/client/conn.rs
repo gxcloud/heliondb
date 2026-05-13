@@ -13,6 +13,7 @@ use crate::protocol::messages::{ClientMessage, ServerMessage};
 pub struct ClientConn {
     pub connection: Connection,
     pub username: String,
+    pub database: String,
     password: String,
 }
 
@@ -23,6 +24,7 @@ impl ClientConn {
         server_name: &str,
         username: &str,
         password: &str,
+        database: &str,
         insecure: bool,
     ) -> std::result::Result<Self, HelionError> {
         let endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())
@@ -69,6 +71,7 @@ impl ClientConn {
         Ok(ClientConn {
             connection,
             username: username.to_string(),
+            database: database.to_string(),
             password: password.to_string(),
         })
     }
@@ -86,6 +89,7 @@ impl ClientConn {
         let auth_msg = ClientMessage::Auth {
             username: self.username.clone(),
             password: self.password.clone(),
+            database: self.database.clone(),
         };
         Self::write_message(&mut send, &auth_msg).await?;
 
