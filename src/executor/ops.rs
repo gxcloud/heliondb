@@ -1,8 +1,11 @@
 use crate::error::{HelionError, Result};
 use crate::executor::eval;
+use crate::sql::parser::{BinaryOperator, Expression};
 use crate::sql::planner::LogicalPlan;
+use crate::storage::btree::Index;
 use crate::storage::engine::DatabaseEngine;
 use crate::storage::mvcc::{WriteEntry, WriteOp};
+use crate::storage::table::Table;
 use crate::storage::types::{Datum, Row};
 
 #[derive(Debug, Clone)]
@@ -11,6 +14,134 @@ pub struct QueryResult {
     pub column_types: Vec<String>,
     pub rows: Vec<Vec<String>>,
     pub rows_affected: u64,
+}
+
+/// Try to resolve a WHERE clause using available indexes.
+/// Returns Some(sorted row indices) if an index can be used, None to fall back to full scan.
+fn resolve_index_scan(
+    table: &Table,
+    where_clause: &Option<Expression>,
+    table_columns: &[crate::storage::types::ColumnMeta],
+) -> Option<Vec<usize>> {
+    let clause = where_clause.as_ref()?;
+
+    // Try to match simple patterns that use a single index
+    // First, find the best index match for this expression
+    let (col_name, op, literal) = match clause {
+        Expression::BinaryOp {
+            left,
+            op,
+            right,
+        } => {
+            let col = match (left.as_ref(), right.as_ref()) {
+                (Expression::Column(c), Expression::Literal(v))
+                | (Expression::Literal(v), Expression::Column(c)) => {
+                    // For non-equality, column must be on the left for correct ordering
+                    if !matches!(op, BinaryOperator::Eq | BinaryOperator::Ne) {
+                        if !matches!(left.as_ref(), Expression::Column(_)) {
+                            return None;
+                        }
+                    }
+                    (c, v)
+                }
+                _ => return None,
+            };
+            (col.0, op, col.1)
+        }
+        Expression::Between { expr, low, high } => {
+            let col = match expr.as_ref() {
+                Expression::Column(c) => c,
+                _ => return None,
+            };
+            let low_val = match low.as_ref() {
+                Expression::Literal(v) => v,
+                _ => return None,
+            };
+            let high_val = match high.as_ref() {
+                Expression::Literal(v) => v,
+                _ => return None,
+            };
+            // Between can be handled as a range scan
+            return resolve_between_via_index(table, col, low_val, high_val, table_columns);
+        }
+        Expression::In { expr, list } => {
+            let col = match expr.as_ref() {
+                Expression::Column(c) => c,
+                _ => return None,
+            };
+            return resolve_in_via_index(table, col, list, table_columns);
+        }
+        _ => return None,
+    };
+
+    // Find column index
+    let col_idx = table_columns.iter().position(|c| c.name == *col_name)?;
+
+    // Find an index that covers this column
+    let index = table.indexes.iter().find(|idx| idx.meta.columns.contains(&col_idx))?;
+
+    let key = vec![literal.clone()];
+
+    match op {
+        BinaryOperator::Eq => {
+            // Point lookup
+            let row_idxs: Vec<usize> = index
+                .get(&key)?
+                .iter()
+                .copied()
+                .collect();
+            Some(row_idxs)
+        }
+        BinaryOperator::Gt => Some(index.scan_from(key)),
+        BinaryOperator::Ge => Some(index.scan_from(key)),
+        BinaryOperator::Lt => Some(index.scan_to(key)),
+        BinaryOperator::Le => Some(index.scan_to(key)),
+        _ => None,
+    }
+}
+
+fn resolve_between_via_index(
+    table: &Table,
+    col_name: &str,
+    low_val: &Datum,
+    high_val: &Datum,
+    table_columns: &[crate::storage::types::ColumnMeta],
+) -> Option<Vec<usize>> {
+    let col_idx = table_columns.iter().position(|c| c.name == *col_name)?;
+    let index = table.indexes.iter().find(|idx| idx.meta.columns.contains(&col_idx))?;
+    let low = vec![low_val.clone()];
+    let high = vec![high_val.clone()];
+    let mut results = std::collections::BTreeSet::new();
+    for (_, row_idxs) in index.range(
+        std::ops::Bound::Included(low),
+        std::ops::Bound::Included(high),
+    ) {
+        for &row_idx in row_idxs {
+            results.insert(row_idx);
+        }
+    }
+    Some(results.into_iter().collect())
+}
+
+fn resolve_in_via_index(
+    table: &Table,
+    col_name: &str,
+    list: &[Datum],
+    table_columns: &[crate::storage::types::ColumnMeta],
+) -> Option<Vec<usize>> {
+    let col_idx = table_columns.iter().position(|c| c.name == *col_name)?;
+    let index = table.indexes.iter().find(|idx| idx.meta.columns.contains(&col_idx))?;
+    let mut results = std::collections::BTreeSet::new();
+    for val in list {
+        if val.is_null() {
+            continue;
+        }
+        let key = vec![val.clone()];
+        if let Some(row_idxs) = index.get(&key) {
+            results.extend(row_idxs);
+        }
+    }
+    Some(results.into_iter().collect())
 }
 
 /// Execute a plan with an optional current user (None = skip permission checks).
@@ -169,18 +300,46 @@ pub async fn execute_as(
             let snapshot_txid = tx.snapshot.txid;
             engine.mvcc.commit_transaction(&tx);
 
-            let visible_rows = table.scan_visible(snapshot_txid, &active_txns);
-            let filtered: Vec<(usize, &Row)> = if let Some(wc) = where_clause {
-                visible_rows
-                    .into_iter()
-                    .filter(|(_, row)| {
-                        eval::evaluate(wc, &row.values, table_columns)
-                            .map(|d| matches!(d, Datum::Boolean(true)))
-                            .unwrap_or(false)
-                    })
-                    .collect()
+            // Try index scan first, fall back to full table scan
+            let filtered: Vec<(usize, &Row)> = if let Some(index_rows) =
+                resolve_index_scan(table, where_clause, table_columns)
+            {
+                // Index gave us candidate row indices — fetch and filter by MVCC
+                let mut results = Vec::new();
+                for &row_idx in &index_rows {
+                    if let Some(rv) = table.get_visible_version(row_idx, snapshot_txid, &active_txns)
+                    {
+                        // If there's a WHERE clause, re-check with the evaluator
+                        // (to handle expressions the index couldn't fully resolve)
+                        let row = &rv.row;
+                        let matches = if let Some(wc) = where_clause {
+                            eval::evaluate(wc, &row.values, table_columns)
+                                .map(|d| matches!(d, Datum::Boolean(true)))
+                                .unwrap_or(false)
+                        } else {
+                            true
+                        };
+                        if matches {
+                            results.push((row_idx, row));
+                        }
+                    }
+                }
+                results
             } else {
-                visible_rows
+                // Full table scan
+                let visible_rows = table.scan_visible(snapshot_txid, &active_txns);
+                if let Some(wc) = where_clause {
+                    visible_rows
+                        .into_iter()
+                        .filter(|(_, row)| {
+                            eval::evaluate(wc, &row.values, table_columns)
+                                .map(|d| matches!(d, Datum::Boolean(true)))
+                                .unwrap_or(false)
+                        })
+                        .collect()
+                } else {
+                    visible_rows
+                }
             };
 
             let mut sorted: Vec<(usize, &Row)> = filtered;
