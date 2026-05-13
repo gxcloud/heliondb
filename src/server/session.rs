@@ -67,7 +67,7 @@ async fn handle_stream(
     let msg = read_client_message(send, recv).await?;
 
     // Handle auth — extract database, select the right engine
-    let (username, token, engine) = match &msg {
+    let (username, token, mut engine) = match &msg {
         ClientMessage::Auth {
             username,
             password,
@@ -111,16 +111,79 @@ async fn handle_stream(
             }
         };
 
+        let sql = match msg {
+            ClientMessage::Query { ref sql, .. } => sql.clone(),
+            _ => {
+                // Non-Query messages are handled normally
+                let server_msg = process_authenticated_message(
+                    &msg,
+                    engine.as_ref(),
+                    sessions,
+                    &token,
+                    &username,
+                )
+                .await;
+                send_server_message(send, &server_msg).await?;
+                continue;
+            }
+        };
+
+        let sql_trimmed = sql.trim().trim_end_matches(';').trim().to_string();
+        let upper = sql_trimmed.to_uppercase();
+
+        // SHOW DATABASES — needs the database map
+        if upper == "SHOW DATABASES" {
+            let mut db_names: Vec<String> = databases.keys().cloned().collect();
+            db_names.sort();
+            let rows: Vec<Vec<String>> = db_names.iter().map(|n| vec![n.clone()]).collect();
+            send_server_message(
+                send,
+                &ServerMessage::QueryResult {
+                    columns: vec!["database_name".into()],
+                    rows,
+                    rows_affected: db_names.len() as u64,
+                    error: None,
+                },
+            )
+            .await?;
+            continue;
+        }
+
+        // USE database — validate at session layer, then swap engine after execution
+        let db_name = if upper.starts_with("USE ") {
+            let name = sql_trimmed[3..].trim().to_string();
+            if !databases.contains_key(&name) {
+                send_server_message(
+                    send,
+                    &ServerMessage::Error {
+                        message: format!("Database '{}' not found", name),
+                    },
+                )
+                .await?;
+                continue;
+            }
+            Some(name)
+        } else {
+            None
+        };
+
         let server_msg =
-            process_authenticated_message(msg, engine.as_ref(), sessions, &token, &username).await;
+            process_authenticated_message(&msg, engine.as_ref(), sessions, &token, &username).await;
         send_server_message(send, &server_msg).await?;
+
+        if let Some(ref name) = db_name {
+            if let Some(new_engine) = databases.get(name) {
+                engine = new_engine.clone();
+                info!("User '{}' switched to database '{}'", username, name);
+            }
+        }
     }
 
     Ok(())
 }
 
 async fn process_authenticated_message(
-    msg: ClientMessage,
+    msg: &ClientMessage,
     engine: &DatabaseEngine,
     sessions: &SessionManager,
     token: &u64,
@@ -139,7 +202,7 @@ async fn process_authenticated_message(
 
     match msg {
         ClientMessage::Query { sql, .. } | ClientMessage::Prepare { sql, .. } => {
-            match execute_sql_as(&sql, engine, Some(username)).await {
+            match execute_sql_as(sql, engine, Some(username)).await {
                 Ok(result) => ServerMessage::QueryResult {
                     columns: result.columns,
                     rows: result.rows,
@@ -151,13 +214,9 @@ async fn process_authenticated_message(
                 },
             }
         }
-        ClientMessage::Execute {
-            prepared_id,
-            params,
-            ..
-        } => ServerMessage::QueryResult {
-            columns: vec!["prepared_id".to_string()],
-            rows: vec![vec![prepared_id.to_string()], params],
+        ClientMessage::Execute { .. } => ServerMessage::QueryResult {
+            columns: vec![],
+            rows: vec![],
             rows_affected: 0,
             error: None,
         },

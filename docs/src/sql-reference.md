@@ -213,6 +213,19 @@ REVOKE { SELECT [(cols)] | INSERT [(cols)] | UPDATE [(cols)] | DELETE | ALL } ON
 | `ROUND(num [, decimals])` | Round to decimal places (default 0) |
 | `UUIDV7()` | Generate a time-ordered UUID v7 |
 
+## Database Management
+
+```sql
+-- List tables in the current database
+SHOW TABLES;
+
+-- List available databases on the server
+SHOW DATABASES;
+
+-- Switch to a different database
+USE database_name;
+```
+
 ## Reserved Keywords
 
 Keywords specific to HelionDB (in addition to standard SQL reserved words):

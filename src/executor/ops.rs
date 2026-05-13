@@ -646,6 +646,39 @@ pub async fn execute_as(
                 rows_affected: 1,
             })
         }
+        LogicalPlan::ShowTables => {
+            let tables = engine.get_tables().await;
+            let rows: Vec<Vec<String>> = tables.iter().map(|t| vec![t.name.clone()]).collect();
+            Ok(QueryResult {
+                columns: vec!["table_name".to_string()],
+                column_types: vec!["TEXT".to_string()],
+                rows,
+                rows_affected: 0,
+            })
+        }
+        LogicalPlan::ShowDatabases => {
+            // Return a single result — the session layer may
+            // intercept this to provide the real database list
+            Ok(QueryResult {
+                columns: vec!["database_name".to_string()],
+                column_types: vec!["TEXT".to_string()],
+                rows: vec![vec!["default".to_string()]],
+                rows_affected: 1,
+            })
+        }
+        LogicalPlan::UseDatabase { name } => {
+            if name.is_empty() {
+                return Err(HelionError::Internal(
+                    "Database name cannot be empty".into(),
+                ));
+            }
+            Ok(QueryResult {
+                columns: vec![],
+                column_types: vec![],
+                rows: vec![],
+                rows_affected: 0,
+            })
+        }
     }
 }
 

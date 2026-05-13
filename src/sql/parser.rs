@@ -83,6 +83,11 @@ pub enum HelionStatement {
         table: String,
         if_exists: bool,
     },
+    ShowTables,
+    ShowDatabases,
+    UseDatabase {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -279,6 +284,24 @@ fn parse_custom(sql: &str) -> Result<Vec<HelionStatement>> {
 
     if upper.starts_with("DROP INDEX ") {
         return parse_drop_index(sql);
+    }
+
+    if upper.starts_with("SHOW TABLES") {
+        return Ok(vec![HelionStatement::ShowTables]);
+    }
+
+    if upper.starts_with("SHOW DATABASES") {
+        return Ok(vec![HelionStatement::ShowDatabases]);
+    }
+
+    if upper.starts_with("USE ") {
+        let name = sql[3..].trim().trim_end_matches(';').trim().to_string();
+        if name.is_empty() {
+            return Err(HelionError::Parse(
+                "Expected database name after USE".into(),
+            ));
+        }
+        return Ok(vec![HelionStatement::UseDatabase { name }]);
     }
 
     Err(HelionError::Parse(format!("Unsupported SQL: {}", sql)))

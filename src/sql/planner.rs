@@ -87,6 +87,11 @@ pub enum LogicalPlan {
         table: String,
         if_exists: bool,
     },
+    ShowTables,
+    ShowDatabases,
+    UseDatabase {
+        name: String,
+    },
 }
 
 /// Plan a parsed statement against the available table schemas.
@@ -296,6 +301,11 @@ pub fn plan(statement: &HelionStatement, tables: &[Table]) -> Result<LogicalPlan
             table: table.clone(),
             if_exists: *if_exists,
         }),
+        HelionStatement::ShowTables => Ok(LogicalPlan::ShowTables),
+        HelionStatement::ShowDatabases => Ok(LogicalPlan::ShowDatabases),
+        HelionStatement::UseDatabase { name } => {
+            Ok(LogicalPlan::UseDatabase { name: name.clone() })
+        }
     }
 }
 

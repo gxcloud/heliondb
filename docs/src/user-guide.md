@@ -215,6 +215,19 @@ INSERT INTO users VALUES (2, 'alice@test.com');    -- ERROR: duplicate key on uq
 UPDATE users SET id = 1 WHERE email = 'bob@test.com'; -- ERROR if id=1 exists
 ```
 
+### Database Management
+
+```sql
+-- List tables in the current database
+SHOW TABLES;
+
+-- List available databases
+SHOW DATABASES;
+
+-- Switch to a different database (multi-database servers only)
+USE my_database;
+```
+
 ### Data Manipulation
 
 ```sql
