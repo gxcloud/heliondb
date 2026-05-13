@@ -1,0 +1,13 @@
+services:
+  heliondb:
+    build: .
+    ports:
+      - "9613:9613/udp"
+    volumes:
+      - heliondb-data:/data
+    environment:
+      - HELION_PASSWORD=${HELION_PASSWORD:-change-me}
+    restart: unless-stopped
+
+volumes:
+  heliondb-data:
