@@ -322,52 +322,55 @@ fn parse_create_index(sql: &str) -> Result<Vec<HelionStatement>> {
     let unique = upper.contains("UNIQUE");
     let if_not_exists = upper.contains("IF NOT EXISTS");
 
-    // Extract name after "INDEX"
-    let after_index = if unique {
-        let idx = upper.find("UNIQUE INDEX").unwrap_or(upper.find("UNIQUE").unwrap())
-            + "UNIQUE".len();
-        &upper[idx..]
+    // Find the index name by locating "INDEX" keyword in the original SQL
+    // Use the uppercase version to find positions, but extract from original
+    let after_index_start = if unique {
+        let idx = upper.find("UNIQUE INDEX")
+            .or_else(|| upper.find("UNIQUE"))
+            .unwrap();
+        // Skip past "UNIQUE" keyword
+        let skip = if upper[idx..].starts_with("UNIQUE INDEX") { 12 } else { 6 };
+        idx + skip
     } else {
-        &upper[upper.find("INDEX").unwrap() + "INDEX".len()..]
+        upper.find(" INDEX ").unwrap_or_else(|| upper.find("INDEX ").unwrap()) + 6
     };
-    let after_index = after_index.trim();
 
-    let (name_rest, if_not_exists_offset) = if if_not_exists {
-        if let Some(rest) = after_index.strip_prefix("IF NOT EXISTS ") {
-            (rest, true)
+    let after_index = &sql[after_index_start..].trim_start();
+    let name_rest = if if_not_exists {
+        if let Some(rest) = after_index.strip_prefix("IF NOT EXISTS ")
+            .or_else(|| after_index.strip_prefix("if not exists "))
+        {
+            rest
         } else {
-            (after_index, false)
+            after_index
         }
     } else {
-        (after_index, false)
+        after_index
     };
 
-    let parts: Vec<&str> = name_rest.splitn(2, |c: char| c.is_whitespace()).collect();
-    if parts.is_empty() {
-        return Err(HelionError::Parse("Expected index name".into()));
-    }
-    let name = parts[0].to_string();
+    let name_end = name_rest.find(|c: char| c.is_whitespace() || c == '(')
+        .unwrap_or(name_rest.len());
+    let name = name_rest[..name_end].to_string();
 
-    // Find "ON" keyword and table name
-    let on_pos = upper.find(" ON ");
-    let table_rest = match on_pos {
-        Some(pos) => sql[on_pos + 4..].trim().to_string(),
+    // Find "ON" keyword and everything after it
+    let on_pos = upper.rfind(" ON ");
+    let after_on = match on_pos {
+        Some(pos) => sql[pos + 4..].trim(),
         None => return Err(HelionError::Parse("Expected ON table_name (col1, col2)".into())),
     };
 
-    // Extract table name and column list
-    let paren_pos = table_rest.find('(');
+    let paren_pos = after_on.find('(');
     let table_name = match paren_pos {
-        Some(pos) => table_rest[..pos].trim().to_string(),
+        Some(pos) => after_on[..pos].trim().to_string(),
         None => return Err(HelionError::Parse("Expected column list in parentheses".into())),
     };
 
     let col_list = match paren_pos {
         Some(pos) => {
-            let end = table_rest.rfind(')').ok_or_else(|| {
+            let end = after_on.rfind(')').ok_or_else(|| {
                 HelionError::Parse("Expected closing parenthesis".into())
             })?;
-            table_rest[pos + 1..end].trim().to_string()
+            after_on[pos + 1..end].trim().to_string()
         }
         None => return Err(HelionError::Parse("Expected column list".into())),
     };
@@ -387,7 +390,7 @@ fn parse_create_index(sql: &str) -> Result<Vec<HelionStatement>> {
         table: table_name,
         columns,
         unique,
-        if_not_exists: if_not_exists || if_not_exists_offset,
+        if_not_exists,
     }])
 }
 
@@ -397,22 +400,15 @@ fn parse_drop_index(sql: &str) -> Result<Vec<HelionStatement>> {
 
     let if_exists = upper.contains("IF EXISTS");
 
-    let after_drop = if if_exists {
-        upper
-            .strip_prefix("DROP INDEX IF EXISTS ")
-            .or_else(|| upper.strip_prefix("drop index if exists "))
-            .unwrap_or("")
-    } else {
-        upper
-            .strip_prefix("DROP INDEX ")
-            .or_else(|| upper.strip_prefix("drop index "))
-            .unwrap_or("")
-    }
-    .trim()
-    .to_string();
+    // Find the index name from the original SQL (preserve case)
+    let drop_kw = if if_exists { "DROP INDEX IF EXISTS " } else { "DROP INDEX " };
+    let after_drop = match upper.find(drop_kw) {
+        Some(pos) => sql[pos + drop_kw.len()..].trim(),
+        None => return Err(HelionError::Parse("Expected DROP INDEX statement".into())),
+    };
 
-    // Split on ON to get index name and table
-    let on_pos = after_drop.find(" ON ");
+    // Split on ON (uppercase-insensitive) to get index name and table
+    let on_pos = after_drop.to_uppercase().find(" ON ");
     let name = match on_pos {
         Some(pos) => after_drop[..pos].trim().to_string(),
         None => return Err(HelionError::Parse("Expected ON table_name".into())),

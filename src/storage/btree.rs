@@ -306,8 +306,8 @@ mod tests {
     #[test]
     fn test_range_scan() {
         let mut idx = make_index();
-        for i in 0..10 {
-            idx.insert(&[Datum::Integer(i)], i).unwrap();
+        for i in 0i32..10 {
+            idx.insert(&[Datum::Integer(i)], i as usize).unwrap();
         }
         let range: Vec<_> = idx
             .range(
@@ -321,8 +321,8 @@ mod tests {
     #[test]
     fn test_scan_from() {
         let mut idx = make_index();
-        for i in 0..10 {
-            idx.insert(&[Datum::Integer(i)], i).unwrap();
+        for i in 0i32..10 {
+            idx.insert(&[Datum::Integer(i)], i as usize).unwrap();
         }
         let result = idx.scan_from(vec![Datum::Integer(7)]);
         assert_eq!(result.len(), 3); // 7, 8, 9
@@ -331,8 +331,8 @@ mod tests {
     #[test]
     fn test_scan_to() {
         let mut idx = make_index();
-        for i in 0..10 {
-            idx.insert(&[Datum::Integer(i)], i).unwrap();
+        for i in 0i32..10 {
+            idx.insert(&[Datum::Integer(i)], i as usize).unwrap();
         }
         let result = idx.scan_to(vec![Datum::Integer(2)]);
         assert_eq!(result.len(), 3); // 0, 1, 2

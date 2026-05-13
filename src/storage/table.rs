@@ -1,5 +1,5 @@
 use crate::error::{HelionError, Result};
-use crate::storage::btree::{Index, IndexMeta};
+use crate::storage::btree::Index;
 use crate::storage::types::{ColumnMeta, DataType, Row};
 use serde::{Deserialize, Serialize};
 
@@ -151,12 +151,17 @@ impl Table {
         for index in &mut self.indexes {
             index.clear();
         }
-        // Scan committed rows (snapshot_txid = u64::MAX, no active txns)
+        // Collect visible rows first to avoid borrow conflicts
         let active = std::collections::BTreeSet::new();
-        for (row_idx, row) in self.scan_visible(u64::MAX, &active) {
+        let visible: Vec<(usize, crate::storage::types::Row)> = self
+            .scan_visible(u64::MAX, &active)
+            .into_iter()
+            .map(|(idx, row)| (idx, row.clone()))
+            .collect();
+        for (row_idx, row) in &visible {
             for index in &mut self.indexes {
                 let key = index.extract_key(row);
-                index.insert_entry(key, row_idx);
+                index.insert_entry(key, *row_idx);
             }
         }
     }
@@ -193,6 +198,21 @@ impl Table {
         }
         self.indexes.push(index);
         Ok(())
+    }
+
+    /// Return true if an index with the given name exists.
+    pub fn has_index(&self, name: &str) -> bool {
+        self.indexes.iter().any(|i| i.meta.name == name)
+    }
+
+    /// Return the number of indexes on this table.
+    pub fn index_count(&self) -> usize {
+        self.indexes.len()
+    }
+
+    /// Return all index names.
+    pub fn index_names(&self) -> Vec<String> {
+        self.indexes.iter().map(|i| i.meta.name.clone()).collect()
     }
 
     /// Drop a named index.
@@ -694,7 +714,7 @@ mod tests {
         let result = t.add_index("uq_name", vec![1], true);
         assert!(result.is_err());
         match result.unwrap_err() {
-            HelionError::DuplicateKey { index, key } => {
+            HelionError::DuplicateKey { index, .. } => {
                 assert_eq!(index, "uq_name");
             }
             e => panic!("Expected DuplicateKey, got: {:?}", e),

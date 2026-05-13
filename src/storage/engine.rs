@@ -327,11 +327,8 @@ impl DatabaseEngine {
                         table.check_unique_constraints(true, entry.row_idx, row)?;
                     }
                     WriteOp::Update(new_row) => {
-                        let old_row = get_visible_row(table, entry.row_idx);
-                        if let Some(old) = old_row {
-                            // Allow the update if old key == new key (same row)
-                            table.check_unique_constraints(false, entry.row_idx, new_row)?;
-                        }
+                        let _old_row = get_visible_row(table, entry.row_idx);
+                        table.check_unique_constraints(false, entry.row_idx, new_row)?;
                     }
                     WriteOp::Delete => {}
                 }

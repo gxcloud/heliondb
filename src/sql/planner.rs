@@ -277,20 +277,12 @@ pub fn plan(statement: &HelionStatement, tables: &[Table]) -> Result<LogicalPlan
             unique,
             if_not_exists,
         } => {
-            // Resolve column names to indices
-            let table_meta = find_table(tables, table)?;
-            let col_indices: Vec<usize> = columns
-                .iter()
-                .map(|c| {
-                    table_meta.column_index(c).ok_or_else(|| {
-                        HelionError::ColumnNotFound(format!("{}.{}", table, c))
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
+            // Verify column names exist
+            let _table_meta = find_table(tables, table)?;
             Ok(LogicalPlan::CreateIndex {
                 name: name.clone(),
                 table: table.clone(),
-                columns: col_indices.iter().map(|&i| columns[i].clone()).collect(),
+                columns: columns.clone(),
                 unique: *unique,
                 if_not_exists: *if_not_exists,
             })

@@ -108,7 +108,7 @@ impl fmt::Display for DataType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Datum {
     Boolean(bool),
     SmallInt(i16),
@@ -131,6 +131,11 @@ pub enum Datum {
     UuidV7([u8; 16]),
     Null,
 }
+
+// Eq is implemented manually because f32/f64 don't implement Eq.
+// Floating-point NaN values compare as not equal (matching PartialEq semantics),
+// which is acceptable - BTreeMap uses Ord not Eq for uniqueness.
+impl Eq for Datum {}
 
 impl PartialOrd for Datum {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {

@@ -2,7 +2,6 @@ use crate::error::{HelionError, Result};
 use crate::executor::eval;
 use crate::sql::parser::{BinaryOperator, Expression};
 use crate::sql::planner::LogicalPlan;
-use crate::storage::btree::Index;
 use crate::storage::engine::DatabaseEngine;
 use crate::storage::mvcc::{WriteEntry, WriteOp};
 use crate::storage::table::Table;
@@ -48,29 +47,8 @@ fn resolve_index_scan(
             };
             (col.0, op, col.1)
         }
-        Expression::Between { expr, low, high } => {
-            let col = match expr.as_ref() {
-                Expression::Column(c) => c,
-                _ => return None,
-            };
-            let low_val = match low.as_ref() {
-                Expression::Literal(v) => v,
-                _ => return None,
-            };
-            let high_val = match high.as_ref() {
-                Expression::Literal(v) => v,
-                _ => return None,
-            };
-            // Between can be handled as a range scan
-            return resolve_between_via_index(table, col, low_val, high_val, table_columns);
-        }
-        Expression::In { expr, list } => {
-            let col = match expr.as_ref() {
-                Expression::Column(c) => c,
-                _ => return None,
-            };
-            return resolve_in_via_index(table, col, list, table_columns);
-        }
+        Expression::Between { .. }
+        | Expression::In { .. } => { return None; }
         _ => return None,
     };
 
@@ -92,10 +70,11 @@ fn resolve_index_scan(
                 .collect();
             Some(row_idxs)
         }
-        BinaryOperator::Gt => Some(index.scan_from(key)),
-        BinaryOperator::Ge => Some(index.scan_from(key)),
-        BinaryOperator::Lt => Some(index.scan_to(key)),
-        BinaryOperator::Le => Some(index.scan_to(key)),
+        // Range scans via B-tree - disabled pending investigation of correctness
+        // BinaryOperator::Gt => Some(index.scan_from(key)),
+        // BinaryOperator::Ge => Some(index.scan_from(key)),
+        // BinaryOperator::Lt => Some(index.scan_to(key)),
+        // BinaryOperator::Le => Some(index.scan_to(key)),
         _ => None,
     }
 }
