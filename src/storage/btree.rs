@@ -109,12 +109,7 @@ impl Index {
     }
 
     /// Update a row's key in the index (remove old, insert new).
-    pub fn update(
-        &mut self,
-        old_key: &[Datum],
-        new_key: &[Datum],
-        row_idx: usize,
-    ) -> Result<()> {
+    pub fn update(&mut self, old_key: &[Datum], new_key: &[Datum], row_idx: usize) -> Result<()> {
         self.remove(old_key, row_idx);
         self.insert(new_key, row_idx)
     }
@@ -164,7 +159,7 @@ impl Index {
     /// Return all row indices in the index (full scan).
     pub fn all_row_idxs(&self) -> Vec<usize> {
         let mut results = BTreeSet::new();
-        for (_, row_idxs) in &self.entries {
+        for row_idxs in self.entries.values() {
             results.extend(row_idxs);
         }
         results.into_iter().collect()
@@ -276,7 +271,8 @@ mod tests {
     fn test_update() {
         let mut idx = make_index();
         idx.insert(&[Datum::Integer(1)], 0).unwrap();
-        idx.update(&[Datum::Integer(1)], &[Datum::Integer(2)], 0).unwrap();
+        idx.update(&[Datum::Integer(1)], &[Datum::Integer(2)], 0)
+            .unwrap();
         assert!(!idx.contains(&[Datum::Integer(1)]));
         assert!(idx.contains(&[Datum::Integer(2)]));
     }

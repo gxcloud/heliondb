@@ -825,7 +825,11 @@ async fn test_concurrent_transactions_conflict() {
 #[tokio::test]
 async fn test_pk_auto_index_enforces_uniqueness() {
     let (engine, _dir) = setup().await;
-    exec(&engine, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)").await;
+    exec(
+        &engine,
+        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
+    )
+    .await;
 
     // First insert should succeed
     exec(&engine, "INSERT INTO users VALUES (1, 'Alice')").await;
@@ -846,7 +850,11 @@ async fn test_pk_auto_index_enforces_uniqueness() {
 #[tokio::test]
 async fn test_pk_enforced_on_update() {
     let (engine, _dir) = setup().await;
-    exec(&engine, "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)").await;
+    exec(
+        &engine,
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
+    )
+    .await;
     exec(&engine, "INSERT INTO t VALUES (1, 100)").await;
     exec(&engine, "INSERT INTO t VALUES (2, 200)").await;
 
@@ -861,11 +869,7 @@ async fn test_pk_enforced_on_update() {
 #[tokio::test]
 async fn test_unique_column_auto_index() {
     let (engine, _dir) = setup().await;
-    exec(
-        &engine,
-        "CREATE TABLE t (id INTEGER, email TEXT UNIQUE)",
-    )
-    .await;
+    exec(&engine, "CREATE TABLE t (id INTEGER, email TEXT UNIQUE)").await;
 
     exec(&engine, "INSERT INTO t VALUES (1, 'a@x.com')").await;
 
@@ -883,7 +887,11 @@ async fn test_unique_column_auto_index() {
 #[tokio::test]
 async fn test_create_index_sql() {
     let (engine, _dir) = setup().await;
-    exec(&engine, "CREATE TABLE t (id INTEGER, name TEXT, age INTEGER)").await;
+    exec(
+        &engine,
+        "CREATE TABLE t (id INTEGER, name TEXT, age INTEGER)",
+    )
+    .await;
     exec(&engine, "INSERT INTO t VALUES (1, 'Alice', 30)").await;
     exec(&engine, "INSERT INTO t VALUES (2, 'Bob', 25)").await;
 
@@ -979,10 +987,18 @@ async fn test_drop_index_if_exists() {
 #[tokio::test]
 async fn test_index_accelerates_select() {
     let (engine, _dir) = setup().await;
-    exec(&engine, "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)").await;
+    exec(
+        &engine,
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
+    )
+    .await;
 
     for i in 0..10 {
-        exec(&engine, &format!("INSERT INTO t VALUES ({}, {})", i, i * 10)).await;
+        exec(
+            &engine,
+            &format!("INSERT INTO t VALUES ({}, {})", i, i * 10),
+        )
+        .await;
     }
 
     // Point lookup via PK index
@@ -999,7 +1015,11 @@ async fn test_index_works_after_wal_recovery() {
     let dir = TempDir::new().unwrap();
     {
         let mut engine = DatabaseEngine::open(dir.path()).await.unwrap();
-        exec(&engine, "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)").await;
+        exec(
+            &engine,
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, val INTEGER)",
+        )
+        .await;
         exec(&engine, "INSERT INTO t VALUES (1, 100)").await;
         exec(&engine, "INSERT INTO t VALUES (2, 200)").await;
         engine.shutdown().await.unwrap();

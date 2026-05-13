@@ -14,7 +14,7 @@ cd heliondb
 cargo build --release
 ```
 
-The binary will be at `./target/release/heliondb`.
+The binaries will be at `./target/release/heliondb` (server) and `./target/release/helionctl` (CLI client).
 
 ## Running the Server
 
@@ -91,6 +91,58 @@ assert!(engine.verify_user("helion", "my_secure_password").await);
 
 let s = &parse("CREATE TABLE items (id INTEGER, name TEXT) ENGINE = disk")?;
 execute(&engine, &plan(&s[0], &[])?).await?;
+```
+
+### helionctl CLI Client
+
+The `helionctl` binary is an interactive SQL shell (like `psql`) that connects to a running HelionDB server over QUIC.
+
+```bash
+# Start the server first, then:
+./target/release/helionctl --password my_password
+
+# Specify host, user, password
+./target/release/helionctl --host 127.0.0.1:9613 --user helion --password my_password
+
+# Use environment variables instead of flags
+export HELIONDB_USER=helion
+export HELIONDB_PASSWORD=my_password
+./target/release/helionctl
+```
+
+**Single query mode** — pass SQL as a positional argument:
+
+```bash
+./target/release/helionctl --password my_password "SELECT * FROM users"
+```
+
+**Self-signed certificates** — the server generates a self-signed cert by default. Connect with `--insecure` to skip TLS verification:
+
+```bash
+./target/release/helionctl --password my_password --insecure
+```
+
+**REPL commands** (inside the interactive shell):
+
+| Command | Description |
+|---------|-------------|
+| `\q` | Quit |
+| `\?`, `\h`, `\help` | Show help |
+| `\x` | Toggle expanded (vertical) display |
+| `\g` | Re-run the last SQL query |
+
+**CLI options:**
+
+```text
+Usage: helionctl [OPTIONS] [SQL]
+
+Options:
+  -h, --host <ADDR>        Server address [default: 127.0.0.1:9613]
+  -u, --user <USER>        Username [env: HELIONDB_USER] [default: helion]
+  -p, --password <PASS>    Password [env: HELIONDB_PASSWORD]
+      --server-name <SNI>  TLS server name (SNI) [default: heliondb.local]
+      --insecure           Skip TLS certificate verification
+  <SQL>                    Optional SQL to execute and exit
 ```
 
 ### Generic QUIC Client

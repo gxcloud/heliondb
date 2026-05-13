@@ -27,19 +27,15 @@ fn resolve_index_scan(
     // Try to match simple patterns that use a single index
     // First, find the best index match for this expression
     let (col_name, op, literal) = match clause {
-        Expression::BinaryOp {
-            left,
-            op,
-            right,
-        } => {
+        Expression::BinaryOp { left, op, right } => {
             let col = match (left.as_ref(), right.as_ref()) {
                 (Expression::Column(c), Expression::Literal(v))
                 | (Expression::Literal(v), Expression::Column(c)) => {
                     // For non-equality, column must be on the left for correct ordering
-                    if !matches!(op, BinaryOperator::Eq | BinaryOperator::Ne) {
-                        if !matches!(left.as_ref(), Expression::Column(_)) {
-                            return None;
-                        }
+                    if !matches!(op, BinaryOperator::Eq | BinaryOperator::Ne)
+                        && !matches!(left.as_ref(), Expression::Column(_))
+                    {
+                        return None;
                     }
                     (c, v)
                 }
@@ -47,8 +43,9 @@ fn resolve_index_scan(
             };
             (col.0, op, col.1)
         }
-        Expression::Between { .. }
-        | Expression::In { .. } => { return None; }
+        Expression::Between { .. } | Expression::In { .. } => {
+            return None;
+        }
         _ => return None,
     };
 
@@ -56,18 +53,17 @@ fn resolve_index_scan(
     let col_idx = table_columns.iter().position(|c| c.name == *col_name)?;
 
     // Find an index that covers this column
-    let index = table.indexes.iter().find(|idx| idx.meta.columns.contains(&col_idx))?;
+    let index = table
+        .indexes
+        .iter()
+        .find(|idx| idx.meta.columns.contains(&col_idx))?;
 
     let key = vec![literal.clone()];
 
     match op {
         BinaryOperator::Eq => {
             // Point lookup
-            let row_idxs: Vec<usize> = index
-                .get(&key)?
-                .iter()
-                .copied()
-                .collect();
+            let row_idxs: Vec<usize> = index.get(&key)?.iter().copied().collect();
             Some(row_idxs)
         }
         // Range scans via B-tree - disabled pending investigation of correctness
@@ -236,46 +232,46 @@ pub async fn execute_as(
             engine.mvcc.commit_transaction(&tx);
 
             // Try index scan first, fall back to full table scan
-            let filtered: Vec<(usize, &Row)> = if let Some(index_rows) =
-                resolve_index_scan(table, where_clause, table_columns)
-            {
-                // Index gave us candidate row indices — fetch and filter by MVCC
-                let mut results = Vec::new();
-                for &row_idx in &index_rows {
-                    if let Some(rv) = table.get_visible_version(row_idx, snapshot_txid, &active_txns)
-                    {
-                        // If there's a WHERE clause, re-check with the evaluator
-                        // (to handle expressions the index couldn't fully resolve)
-                        let row = &rv.row;
-                        let matches = if let Some(wc) = where_clause {
-                            eval::evaluate(wc, &row.values, table_columns)
-                                .map(|d| matches!(d, Datum::Boolean(true)))
-                                .unwrap_or(false)
-                        } else {
-                            true
-                        };
-                        if matches {
-                            results.push((row_idx, row));
+            let filtered: Vec<(usize, &Row)> =
+                if let Some(index_rows) = resolve_index_scan(table, where_clause, table_columns) {
+                    // Index gave us candidate row indices — fetch and filter by MVCC
+                    let mut results = Vec::new();
+                    for &row_idx in &index_rows {
+                        if let Some(rv) =
+                            table.get_visible_version(row_idx, snapshot_txid, &active_txns)
+                        {
+                            // If there's a WHERE clause, re-check with the evaluator
+                            // (to handle expressions the index couldn't fully resolve)
+                            let row = &rv.row;
+                            let matches = if let Some(wc) = where_clause {
+                                eval::evaluate(wc, &row.values, table_columns)
+                                    .map(|d| matches!(d, Datum::Boolean(true)))
+                                    .unwrap_or(false)
+                            } else {
+                                true
+                            };
+                            if matches {
+                                results.push((row_idx, row));
+                            }
                         }
                     }
-                }
-                results
-            } else {
-                // Full table scan
-                let visible_rows = table.scan_visible(snapshot_txid, &active_txns);
-                if let Some(wc) = where_clause {
-                    visible_rows
-                        .into_iter()
-                        .filter(|(_, row)| {
-                            eval::evaluate(wc, &row.values, table_columns)
-                                .map(|d| matches!(d, Datum::Boolean(true)))
-                                .unwrap_or(false)
-                        })
-                        .collect()
+                    results
                 } else {
-                    visible_rows
-                }
-            };
+                    // Full table scan
+                    let visible_rows = table.scan_visible(snapshot_txid, &active_txns);
+                    if let Some(wc) = where_clause {
+                        visible_rows
+                            .into_iter()
+                            .filter(|(_, row)| {
+                                eval::evaluate(wc, &row.values, table_columns)
+                                    .map(|d| matches!(d, Datum::Boolean(true)))
+                                    .unwrap_or(false)
+                            })
+                            .collect()
+                    } else {
+                        visible_rows
+                    }
+                };
 
             let mut sorted: Vec<(usize, &Row)> = filtered;
             if !order_by.is_empty() {
@@ -625,9 +621,7 @@ pub async fn execute_as(
             if_exists,
         } => {
             let mut tables = engine.get_tables().await;
-            let table = tables
-                .iter_mut()
-                .find(|t| t.name == *table_name);
+            let table = tables.iter_mut().find(|t| t.name == *table_name);
 
             match table {
                 Some(t) => {

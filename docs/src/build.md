@@ -25,7 +25,7 @@ cargo build --release
 cargo build -p heliondb --lib
 ```
 
-The release binary is at `./target/release/heliondb`.
+The release binaries are at `./target/release/heliondb` (server) and `./target/release/helionctl` (CLI client). `cargo build --release` builds both.
 
 ## Build the Docs (mdBook)
 

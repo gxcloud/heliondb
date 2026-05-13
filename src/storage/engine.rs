@@ -145,7 +145,7 @@ pub struct DatabaseEngine {
 }
 
 /// Get the latest committed visible row from a table at a given chain index.
-fn get_visible_row<'a>(table: &'a Table, row_idx: usize) -> Option<&'a crate::storage::types::Row> {
+fn get_visible_row(table: &Table, row_idx: usize) -> Option<&crate::storage::types::Row> {
     if row_idx < table.version_chains.len() {
         let chain = &table.version_chains[row_idx];
         for version in chain.iter().rev() {

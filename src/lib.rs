@@ -65,6 +65,7 @@
 //!   `TEXT`, `BOOLEAN`, `DATE`, `TIME`, `TIMESTAMP`, `UUID`, `UUIDV7`, `U_SMALLINT`,
 //!   `U_INTEGER`, `U_BIGINT`
 
+pub mod client;
 pub mod error;
 pub mod executor;
 pub mod protocol;
@@ -80,10 +81,10 @@ pub use sql::parser::{
     parse, BinaryOperator, Expression, HelionStatement, SelectColumn, UnaryOperator,
 };
 pub use sql::planner::{plan, LogicalPlan};
+pub use storage::btree::{Index, IndexMeta};
 pub use storage::engine::DatabaseEngine;
 pub use storage::mvcc::{Transaction, TransactionStatus, WriteEntry, WriteOp};
 pub use storage::permissions::{Permission, PermissionStore};
-pub use storage::btree::{Index, IndexMeta};
 pub use storage::table::Table;
 pub use storage::types::{ColumnMeta, DataType, Datum, Row};
 pub use storage::users::{User, UserStore};

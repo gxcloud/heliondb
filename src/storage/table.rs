@@ -127,8 +127,7 @@ impl Table {
         if let Some(pk_col) = self.primary_key_idx {
             let pk_name = format!("pk_{}", self.name);
             if !self.indexes.iter().any(|i| i.meta.name == pk_name) {
-                self.indexes
-                    .push(Index::new_unique(&pk_name, vec![pk_col]));
+                self.indexes.push(Index::new_unique(&pk_name, vec![pk_col]));
             }
         }
     }
@@ -167,12 +166,7 @@ impl Table {
     }
 
     /// Add a user-defined index.
-    pub fn add_index(
-        &mut self,
-        name: &str,
-        columns: Vec<usize>,
-        is_unique: bool,
-    ) -> Result<()> {
+    pub fn add_index(&mut self, name: &str, columns: Vec<usize>, is_unique: bool) -> Result<()> {
         if self.indexes.iter().any(|i| i.meta.name == name) {
             return Err(HelionError::IndexAlreadyExists(name.to_string()));
         }
@@ -186,12 +180,16 @@ impl Table {
         for (row_idx, row) in self.scan_visible(u64::MAX, &active) {
             let key = index.extract_key(row);
             if is_unique {
-                index.insert(&key, row_idx).map_err(|_| {
-                    HelionError::DuplicateKey {
+                index
+                    .insert(&key, row_idx)
+                    .map_err(|_| HelionError::DuplicateKey {
                         index: name.to_string(),
-                        key: key.iter().map(|d| d.display()).collect::<Vec<_>>().join(", "),
-                    }
-                })?;
+                        key: key
+                            .iter()
+                            .map(|d| d.display())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    })?;
             } else {
                 index.insert_entry(key, row_idx);
             }
@@ -275,27 +273,18 @@ impl Table {
                 for index in &mut self.indexes {
                     let key = index.extract_key(row);
                     index.insert(&key, row_idx).map_err(|e| {
-                        HelionError::Internal(format!(
-                            "Index insert failed after commit: {}",
-                            e
-                        ))
+                        HelionError::Internal(format!("Index insert failed after commit: {}", e))
                     })?;
                 }
             }
             crate::storage::mvcc::WriteOp::Update(new_row) => {
                 for index in &mut self.indexes {
-                    let old_key = index.extract_key(
-                        old_row
-                            .ok_or_else(|| {
-                                HelionError::Internal("Missing old row for index update".into())
-                            })?,
-                    );
+                    let old_key = index.extract_key(old_row.ok_or_else(|| {
+                        HelionError::Internal("Missing old row for index update".into())
+                    })?);
                     let new_key = index.extract_key(new_row);
                     index.update(&old_key, &new_key, row_idx).map_err(|e| {
-                        HelionError::Internal(format!(
-                            "Index update failed after commit: {}",
-                            e
-                        ))
+                        HelionError::Internal(format!("Index update failed after commit: {}", e))
                     })?;
                 }
             }
@@ -675,10 +664,14 @@ mod tests {
     fn test_rebuild_indexes() {
         let mut t = test_table();
         // Add some data
-        t.version_chains
-            .push(vec![RowVersion::new_insert(1, Row::new(vec![Datum::Integer(10), Datum::Text("a".into())]))]);
-        t.version_chains
-            .push(vec![RowVersion::new_insert(1, Row::new(vec![Datum::Integer(20), Datum::Text("b".into())]))]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            1,
+            Row::new(vec![Datum::Integer(10), Datum::Text("a".into())]),
+        )]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            1,
+            Row::new(vec![Datum::Integer(20), Datum::Text("b".into())]),
+        )]);
 
         // Clear indexes and rebuild
         for idx in &mut t.indexes {
@@ -692,10 +685,14 @@ mod tests {
     #[test]
     fn test_add_index_and_populate() {
         let mut t = test_table();
-        t.version_chains
-            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(10), Datum::Text("alice".into())]))]);
-        t.version_chains
-            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(20), Datum::Text("bob".into())]))]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(10), Datum::Text("alice".into())]),
+        )]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(20), Datum::Text("bob".into())]),
+        )]);
 
         t.add_index("idx_name", vec![1], false).unwrap();
         let idx = t.find_index("idx_name").unwrap();
@@ -706,10 +703,14 @@ mod tests {
     #[test]
     fn test_add_index_unique_violation() {
         let mut t = test_table();
-        t.version_chains
-            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(10), Datum::Text("dup".into())]))]);
-        t.version_chains
-            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(20), Datum::Text("dup".into())]))]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(10), Datum::Text("dup".into())]),
+        )]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(20), Datum::Text("dup".into())]),
+        )]);
 
         let result = t.add_index("uq_name", vec![1], true);
         assert!(result.is_err());
@@ -758,8 +759,10 @@ mod tests {
     fn test_check_unique_constraints_insert_conflict() {
         let mut t = test_table();
         // Pre-populate an entry in the PK index
-        t.version_chains
-            .push(vec![RowVersion::new_insert(5, Row::new(vec![Datum::Integer(1), Datum::Text("existing".into())]))]);
+        t.version_chains.push(vec![RowVersion::new_insert(
+            5,
+            Row::new(vec![Datum::Integer(1), Datum::Text("existing".into())]),
+        )]);
         t.rebuild_indexes();
 
         // Try to insert a row with same PK
