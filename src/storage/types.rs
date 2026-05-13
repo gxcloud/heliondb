@@ -1,6 +1,7 @@
 use crate::error::{HelionError, Result};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::fmt;
 use uuid::Uuid;
 
@@ -107,7 +108,7 @@ impl fmt::Display for DataType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Datum {
     Boolean(bool),
     SmallInt(i16),
@@ -129,6 +130,73 @@ pub enum Datum {
     Uuid(Uuid),
     UuidV7([u8; 16]),
     Null,
+}
+
+impl PartialOrd for Datum {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Datum {
+    fn cmp(&self, other: &Self) -> Ordering {
+        use Datum::*;
+
+        fn variant_idx(d: &Datum) -> u8 {
+            match d {
+                Boolean(_) => 0,
+                SmallInt(_) => 1,
+                UnsignedSmallInt(_) => 2,
+                Integer(_) => 3,
+                UnsignedInteger(_) => 4,
+                BigInt(_) => 5,
+                UnsignedBigInt(_) => 6,
+                Real(_) => 7,
+                Double(_) => 8,
+                VarChar(_) => 9,
+                Char(_) => 10,
+                Text(_) => 11,
+                Binary(_) => 12,
+                Date(_) => 13,
+                Time(_) => 14,
+                Timestamp(_) => 15,
+                TimestampTz(_) => 16,
+                Uuid(_) => 17,
+                UuidV7(_) => 18,
+                Null => 19,
+            }
+        }
+
+        let vi = variant_idx(self);
+        let vo = variant_idx(other);
+        if vi != vo {
+            return vi.cmp(&vo);
+        }
+
+        match (self, other) {
+            (Boolean(a), Boolean(b)) => a.cmp(b),
+            (SmallInt(a), SmallInt(b)) => a.cmp(b),
+            (UnsignedSmallInt(a), UnsignedSmallInt(b)) => a.cmp(b),
+            (Integer(a), Integer(b)) => a.cmp(b),
+            (UnsignedInteger(a), UnsignedInteger(b)) => a.cmp(b),
+            (BigInt(a), BigInt(b)) => a.cmp(b),
+            (UnsignedBigInt(a), UnsignedBigInt(b)) => a.cmp(b),
+            (Real(a), Real(b)) => a.total_cmp(b),
+            (Double(a), Double(b)) => a.total_cmp(b),
+            (VarChar(a), VarChar(b)) => a.cmp(b),
+            (Char(a), Char(b)) => a.cmp(b),
+            (Text(a), Text(b)) => a.cmp(b),
+            (Binary(a), Binary(b)) => a.cmp(b),
+            (Date(a), Date(b)) => a.cmp(b),
+            (Time(a), Time(b)) => a.cmp(b),
+            (Timestamp(a), Timestamp(b)) => a.cmp(b),
+            (TimestampTz(a), TimestampTz(b)) => a.cmp(b),
+            (Uuid(a), Uuid(b)) => a.cmp(b),
+            (UuidV7(a), UuidV7(b)) => a.cmp(b),
+            (Null, Null) => Ordering::Equal,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Datum {
