@@ -1,3 +1,4 @@
+pub mod btree;
 pub mod catalog;
 pub mod checkpoint;
 pub mod engine;

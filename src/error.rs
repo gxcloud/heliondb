@@ -25,6 +25,15 @@ pub enum HelionError {
     #[error("Constraint violation: {0}")]
     ConstraintViolation(String),
 
+    #[error("Duplicate key violation on index '{index}': {key}")]
+    DuplicateKey { index: String, key: String },
+
+    #[error("Index '{0}' not found")]
+    IndexNotFound(String),
+
+    #[error("Index '{0}' already exists")]
+    IndexAlreadyExists(String),
+
     #[error("Optimistic lock conflict: transaction {0} aborted due to concurrent write")]
     Conflict(u64),
 
