@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -48,27 +49,6 @@ jobs:
       - name: Cargo doc test
         run: cargo test --doc
 
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        run: rustup toolchain install stable --profile minimal
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Cargo build (release)
-        run: cargo build --release
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: heliondb-${{ github.sha }}
-          path: target/release/heliondb
-          retention-days: 7
-
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
@@ -92,3 +72,128 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: cobertura.xml
           fail_ci_if_error: false
+
+  build:
+    name: Build (${{ matrix.target }})
+    if: always()
+    needs: [check, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            ext: ""
+
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            ext: ""
+            cross_deps: "gcc-aarch64-linux-gnu"
+            cc: aarch64-linux-gnu-gcc
+            cc_var: CC_aarch64_unknown_linux_gnu
+            linker_var: CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER
+
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            ext: ""
+
+          - target: x86_64-apple-darwin
+            os: macos-13
+            ext: ""
+
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            ext: ".exe"
+
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            ext: ".exe"
+            windows_arm64: true
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: build-${{ matrix.target }}
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - if: matrix.cross_deps
+        name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.cross_deps }}
+        shell: bash
+
+      - if: matrix.windows_arm64
+        name: Setup MSVC ARM64 tools
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker_var && matrix.cc || '' }}
+          CC_aarch64_unknown_linux_gnu: ${{ matrix.cc || '' }}
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/heliondb${{ matrix.ext }}" "dist/heliondb-${{ matrix.target }}${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/helionctl${{ matrix.ext }}" "dist/helionctl-${{ matrix.target }}${{ matrix.ext }}"
+          tar -czf "dist/${{ matrix.target }}.tar.gz" \
+            -C dist \
+            "heliondb-${{ matrix.target }}${{ matrix.ext }}" \
+            "helionctl-${{ matrix.target }}${{ matrix.ext }}"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist -Force
+          copy "target/${{ matrix.target }}/release/heliondb${{ matrix.ext }}" "dist/heliondb-${{ matrix.target }}${{ matrix.ext }}"
+          copy "target/${{ matrix.target }}/release/helionctl${{ matrix.ext }}" "dist/helionctl-${{ matrix.target }}${{ matrix.ext }}"
+          Compress-Archive -Path "dist/heliondb-${{ matrix.target }}${{ matrix.ext }}", "dist/helionctl-${{ matrix.target }}${{ matrix.ext }}" -DestinationPath "dist/${{ matrix.target }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/
+          retention-days: 7
+
+  release:
+    name: Create Draft Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \
+            \( -name '*.tar.gz' -o -name '*.zip' -o -name 'heliondb-*' -o -name 'helionctl-*' \) \
+            -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          draft: true
+          generate_release_notes: true
