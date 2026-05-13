@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d0ce92a3.js";
+            window.path_to_searchindex_js = "searchindex-7a5e4ae9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-64e7334c.js"></script>
@@ -185,8 +185,13 @@
 <li>Selectable storage engines: <code>memory</code> and <code>disk</code></li>
 <li>PostgreSQL-compatible SQL via <code>sqlparser-rs</code></li>
 <li>MVCC concurrency with snapshot isolation</li>
+<li>B-tree indexes with point lookups, range scans, and composite keys</li>
+<li>Automatic unique index on <code>PRIMARY KEY</code> and <code>UNIQUE</code> columns</li>
+<li>User-defined indexes via <code>CREATE INDEX</code> / <code>DROP INDEX</code></li>
+<li>Unique constraint enforcement at commit time</li>
 <li>Async WAL persistence with CRC32 integrity checks</li>
 <li>Crash recovery from WAL replay and checkpoints</li>
+<li>Index-aware query optimization for WHERE, ORDER BY, IN, BETWEEN</li>
 <li>QUIC transport via <code>quinn</code></li>
 </ul>
 <h2 id="sql-support"><a class="header" href="#sql-support">SQL Support</a></h2>
@@ -210,6 +215,10 @@
 <tr><td>Scalar functions (<code>LOWER</code>, <code>UPPER</code>, <code>LENGTH</code>, <code>COALESCE</code>, <code>IFNULL</code>, <code>ABS</code>, <code>ROUND</code>)</td><td>✅</td></tr>
 <tr><td><code>UUIDV7()</code></td><td>✅</td></tr>
 <tr><td><code>PRIMARY KEY</code>, <code>NOT NULL</code>, <code>UNIQUE</code></td><td>✅</td></tr>
+<tr><td><code>CREATE [UNIQUE] INDEX name ON table (cols)</code></td><td>✅</td></tr>
+<tr><td><code>DROP INDEX [IF EXISTS] name ON table</code></td><td>✅</td></tr>
+<tr><td>Unique constraint enforcement</td><td>✅</td></tr>
+<tr><td>Index-accelerated <code>WHERE</code>, <code>ORDER BY</code>, <code>IN</code>, <code>BETWEEN</code></td><td>✅</td></tr>
 <tr><td>Implicit type coercion</td><td>✅</td></tr>
 <tr><td>Transactions (<code>BEGIN</code>/<code>COMMIT</code>/<code>ROLLBACK</code>)</td><td>✅</td></tr>
 <tr><td>MVCC snapshot isolation</td><td>✅</td></tr>
@@ -323,7 +332,7 @@ execute(&amp;engine, &amp;plan(&amp;s[0], &amp;[])?).await?;
 <pre><code class="language-sql">CREATE TABLE users (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
-    email VARCHAR(255),
+    email VARCHAR(255) UNIQUE,
     age INTEGER DEFAULT 0
 );
 CREATE TABLE archive_users (id INTEGER, name TEXT) ENGINE = disk;
@@ -333,6 +342,43 @@ DROP TABLE IF EXISTS users;
 
 ALTER TABLE users ENGINE = memory;
 ALTER TABLE archive_users ENGINE = disk;
+</code></pre>
+<h3 id="index-management"><a class="header" href="#index-management">Index Management</a></h3>
+<p>HelionDB automatically creates unique indexes on <code>PRIMARY KEY</code> and <code>UNIQUE</code> columns.
+You can also create user-defined indexes to accelerate queries:</p>
+<pre><code class="language-sql">-- Automatically created on PRIMARY KEY columns
+CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);
+
+-- Manual index creation
+CREATE INDEX idx_products_price ON products (price);
+CREATE UNIQUE INDEX idx_products_name ON products (name);
+
+-- Composite index (multiple columns)
+CREATE INDEX idx_products_name_price ON products (name, price);
+
+-- Conditional creation
+CREATE INDEX IF NOT EXISTS idx_products_price ON products (price);
+
+-- Drop indexes
+DROP INDEX idx_products_price ON products;
+DROP INDEX IF EXISTS idx_products_price ON products;
+</code></pre>
+<p>Indexes accelerate:</p>
+<ul>
+<li><strong>Point lookups</strong>: <code>WHERE id = 42</code></li>
+<li><strong>Range scans</strong>: <code>WHERE price &gt; 100</code> and <code>WHERE price BETWEEN 10 AND 50</code></li>
+<li><strong>IN lists</strong>: <code>WHERE id IN (1, 2, 3)</code></li>
+<li><strong>Sorted queries</strong>: <code>ORDER BY price</code> (B-tree maintains sort order)</li>
+</ul>
+<p>Without an index, queries fall back to full table scans.</p>
+<h3 id="unique-constraint-enforcement"><a class="header" href="#unique-constraint-enforcement">Unique Constraint Enforcement</a></h3>
+<p><code>PRIMARY KEY</code> and <code>UNIQUE</code> constraints are enforced at commit time:</p>
+<pre><code class="language-sql">CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE);
+
+INSERT INTO users VALUES (1, 'alice@test.com');   -- OK
+INSERT INTO users VALUES (1, 'bob@test.com');      -- ERROR: duplicate key on pk_users
+INSERT INTO users VALUES (2, 'alice@test.com');    -- ERROR: duplicate key on uq_users_email
+UPDATE users SET id = 1 WHERE email = 'bob@test.com'; -- ERROR if id=1 exists
 </code></pre>
 <h3 id="data-manipulation"><a class="header" href="#data-manipulation">Data Manipulation</a></h3>
 <pre><code class="language-sql">INSERT INTO users VALUES (1, 'Alice', 'alice@example.com', 30);
@@ -449,13 +495,24 @@ REVOKE ALL ON users FROM alice;
 <li>Each logical row is stored as a chain of row versions.</li>
 <li>A version is visible if it was created before the snapshot, not deleted before the snapshot, and the creator was already committed.</li>
 </ul>
+<h3 id="indexes"><a class="header" href="#indexes">Indexes</a></h3>
+<p><strong>File</strong>: <code>src/storage/btree.rs</code></p>
+<p>B-tree indexes use <code>std::collections::BTreeMap</code> for <code>O(log n)</code> point lookups and range scans. Each index maps key values (<code>Vec&lt;Datum&gt;</code>) to a set of row indices (<code>BTreeSet&lt;usize&gt;</code>).</p>
+<ul>
+<li><strong>Auto-indexing</strong>: Primary key and <code>UNIQUE</code> columns get automatic unique indexes at table creation.</li>
+<li><strong>User-defined indexes</strong>: Created via <code>CREATE INDEX</code> / <code>DROP INDEX</code> SQL.</li>
+<li><strong>Serialization</strong>: Indexes are part of <code>Table</code> and are serialized with it via bincode for WAL checkpoints and disk engine persistence.</li>
+<li><strong>Startup rebuild</strong>: After WAL replay, indexes are rebuilt from version chain data to ensure consistency.</li>
+</ul>
 <h3 id="optimistic-concurrency-control"><a class="header" href="#optimistic-concurrency-control">Optimistic Concurrency Control</a></h3>
 <p>When a transaction commits:</p>
 <ol>
 <li>Conflicts are checked against the snapshot active set.</li>
+<li>Unique constraints are checked against all unique indexes.</li>
 <li>Old versions are marked with <code>txid_max</code>.</li>
 <li>New versions are appended.</li>
 <li>All writes are appended to the WAL.</li>
+<li>Indexes are updated atomically with version chains.</li>
 </ol>
 <h3 id="wal"><a class="header" href="#wal">WAL</a></h3>
 <p><strong>File</strong>: <code>src/storage/wal.rs</code></p>
@@ -495,6 +552,8 @@ REVOKE ALL ON users FROM alice;
 <ul>
 <li><code>execute(engine, plan)</code> executes without permission checks.</li>
 <li><code>execute_as(engine, plan, current_user)</code> executes with column-level permission checks.</li>
+<li><strong>Index-aware SELECT</strong>: The executor pattern-matches <code>WHERE</code> clauses against available indexes. For point lookups (<code>col = val</code>), range scans (<code>col &gt; val</code>, <code>BETWEEN</code>), and <code>IN</code> lists, rows are fetched via the B-tree index instead of scanning all version chains. Falls back to full scan when no index matches.</li>
+<li><strong>Index DDL</strong>: <code>CREATE INDEX</code> and <code>DROP INDEX</code> are executed by modifying the table’s index list and repopulating from existing data.</li>
 </ul>
 <h2 id="layer-4-server--protocol"><a class="header" href="#layer-4-server--protocol">Layer 4: Server &amp; Protocol</a></h2>
 <h3 id="protocol"><a class="header" href="#protocol">Protocol</a></h3>
@@ -618,6 +677,34 @@ pub enum Datum {
     pub default: Option&lt;Datum&gt;,
 }
 <span class="boring">}</span></code></pre>
+<h3 id="index--indexmeta"><a class="header" href="#index--indexmeta"><code>Index</code> / <code>IndexMeta</code></a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Index {
+    pub meta: IndexMeta,
+    // entries: BTreeMap&lt;Vec&lt;Datum&gt;, BTreeSet&lt;usize&gt;&gt;,
+}
+
+pub struct IndexMeta {
+    pub name: String,
+    pub columns: Vec&lt;usize&gt;,
+    pub is_unique: bool,
+}
+<span class="boring">}</span></code></pre>
+<p>Indexes are automatically created on <code>PRIMARY KEY</code> and <code>UNIQUE</code> columns.
+User-defined indexes can be added via <code>CREATE INDEX</code> SQL or programmatically:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use heliondb::storage::btree::{Index, IndexMeta};
+
+// Create a unique index on column 0
+let mut idx = Index::new_unique("my_index", vec![0]);
+idx.insert(&amp;[Datum::Integer(42)], 0)?;
+assert!(idx.contains(&amp;[Datum::Integer(42)]));
+
+// Range scan
+let results: Vec&lt;usize&gt; = idx.scan_from(vec![Datum::Integer(10)]);
+<span class="boring">}</span></code></pre>
 <h2 id="sql-parsing"><a class="header" href="#sql-parsing">SQL Parsing</a></h2>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -642,6 +729,8 @@ let logical_plan = plan(&amp;stmts[0], &amp;engine.get_tables().await)?;
 <li><code>ALTER USER name [WITH] PASSWORD '...'</code></li>
 <li><code>GRANT {SELECT[(cols)]|INSERT[(cols)]|UPDATE[(cols)]|DELETE|ALL} ON table TO user</code></li>
 <li><code>REVOKE {SELECT[(cols)]|INSERT[(cols)]|UPDATE[(cols)]|DELETE|ALL} ON table FROM user</code></li>
+<li><code>CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (col1, col2, ...)</code></li>
+<li><code>DROP INDEX [IF EXISTS] name ON table</code></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="wire-protocol"><a class="header" href="#wire-protocol">Wire Protocol</a></h1>

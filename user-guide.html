@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d0ce92a3.js";
+            window.path_to_searchindex_js = "searchindex-7a5e4ae9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-64e7334c.js"></script>
@@ -263,7 +263,7 @@ execute(&amp;engine, &amp;plan(&amp;s[0], &amp;[])?).await?;
 <pre><code class="language-sql">CREATE TABLE users (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
-    email VARCHAR(255),
+    email VARCHAR(255) UNIQUE,
     age INTEGER DEFAULT 0
 );
 CREATE TABLE archive_users (id INTEGER, name TEXT) ENGINE = disk;
@@ -273,6 +273,43 @@ DROP TABLE IF EXISTS users;
 
 ALTER TABLE users ENGINE = memory;
 ALTER TABLE archive_users ENGINE = disk;
+</code></pre>
+<h3 id="index-management"><a class="header" href="#index-management">Index Management</a></h3>
+<p>HelionDB automatically creates unique indexes on <code>PRIMARY KEY</code> and <code>UNIQUE</code> columns.
+You can also create user-defined indexes to accelerate queries:</p>
+<pre><code class="language-sql">-- Automatically created on PRIMARY KEY columns
+CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);
+
+-- Manual index creation
+CREATE INDEX idx_products_price ON products (price);
+CREATE UNIQUE INDEX idx_products_name ON products (name);
+
+-- Composite index (multiple columns)
+CREATE INDEX idx_products_name_price ON products (name, price);
+
+-- Conditional creation
+CREATE INDEX IF NOT EXISTS idx_products_price ON products (price);
+
+-- Drop indexes
+DROP INDEX idx_products_price ON products;
+DROP INDEX IF EXISTS idx_products_price ON products;
+</code></pre>
+<p>Indexes accelerate:</p>
+<ul>
+<li><strong>Point lookups</strong>: <code>WHERE id = 42</code></li>
+<li><strong>Range scans</strong>: <code>WHERE price &gt; 100</code> and <code>WHERE price BETWEEN 10 AND 50</code></li>
+<li><strong>IN lists</strong>: <code>WHERE id IN (1, 2, 3)</code></li>
+<li><strong>Sorted queries</strong>: <code>ORDER BY price</code> (B-tree maintains sort order)</li>
+</ul>
+<p>Without an index, queries fall back to full table scans.</p>
+<h3 id="unique-constraint-enforcement"><a class="header" href="#unique-constraint-enforcement">Unique Constraint Enforcement</a></h3>
+<p><code>PRIMARY KEY</code> and <code>UNIQUE</code> constraints are enforced at commit time:</p>
+<pre><code class="language-sql">CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE);
+
+INSERT INTO users VALUES (1, 'alice@test.com');   -- OK
+INSERT INTO users VALUES (1, 'bob@test.com');      -- ERROR: duplicate key on pk_users
+INSERT INTO users VALUES (2, 'alice@test.com');    -- ERROR: duplicate key on uq_users_email
+UPDATE users SET id = 1 WHERE email = 'bob@test.com'; -- ERROR if id=1 exists
 </code></pre>
 <h3 id="data-manipulation"><a class="header" href="#data-manipulation">Data Manipulation</a></h3>
 <pre><code class="language-sql">INSERT INTO users VALUES (1, 'Alice', 'alice@example.com', 30);

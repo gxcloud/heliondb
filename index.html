@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d0ce92a3.js";
+            window.path_to_searchindex_js = "searchindex-7a5e4ae9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-64e7334c.js"></script>
@@ -187,8 +187,13 @@
 <li>Selectable storage engines: <code>memory</code> and <code>disk</code></li>
 <li>PostgreSQL-compatible SQL via <code>sqlparser-rs</code></li>
 <li>MVCC concurrency with snapshot isolation</li>
+<li>B-tree indexes with point lookups, range scans, and composite keys</li>
+<li>Automatic unique index on <code>PRIMARY KEY</code> and <code>UNIQUE</code> columns</li>
+<li>User-defined indexes via <code>CREATE INDEX</code> / <code>DROP INDEX</code></li>
+<li>Unique constraint enforcement at commit time</li>
 <li>Async WAL persistence with CRC32 integrity checks</li>
 <li>Crash recovery from WAL replay and checkpoints</li>
+<li>Index-aware query optimization for WHERE, ORDER BY, IN, BETWEEN</li>
 <li>QUIC transport via <code>quinn</code></li>
 </ul>
 <h2 id="sql-support"><a class="header" href="#sql-support">SQL Support</a></h2>
@@ -212,6 +217,10 @@
 <tr><td>Scalar functions (<code>LOWER</code>, <code>UPPER</code>, <code>LENGTH</code>, <code>COALESCE</code>, <code>IFNULL</code>, <code>ABS</code>, <code>ROUND</code>)</td><td>✅</td></tr>
 <tr><td><code>UUIDV7()</code></td><td>✅</td></tr>
 <tr><td><code>PRIMARY KEY</code>, <code>NOT NULL</code>, <code>UNIQUE</code></td><td>✅</td></tr>
+<tr><td><code>CREATE [UNIQUE] INDEX name ON table (cols)</code></td><td>✅</td></tr>
+<tr><td><code>DROP INDEX [IF EXISTS] name ON table</code></td><td>✅</td></tr>
+<tr><td>Unique constraint enforcement</td><td>✅</td></tr>
+<tr><td>Index-accelerated <code>WHERE</code>, <code>ORDER BY</code>, <code>IN</code>, <code>BETWEEN</code></td><td>✅</td></tr>
 <tr><td>Implicit type coercion</td><td>✅</td></tr>
 <tr><td>Transactions (<code>BEGIN</code>/<code>COMMIT</code>/<code>ROLLBACK</code>)</td><td>✅</td></tr>
 <tr><td>MVCC snapshot isolation</td><td>✅</td></tr>

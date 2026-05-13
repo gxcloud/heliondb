@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d0ce92a3.js";
+            window.path_to_searchindex_js = "searchindex-7a5e4ae9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-64e7334c.js"></script>
@@ -284,6 +284,34 @@ pub enum Datum {
     pub default: Option&lt;Datum&gt;,
 }
 <span class="boring">}</span></code></pre>
+<h3 id="index--indexmeta"><a class="header" href="#index--indexmeta"><code>Index</code> / <code>IndexMeta</code></a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Index {
+    pub meta: IndexMeta,
+    // entries: BTreeMap&lt;Vec&lt;Datum&gt;, BTreeSet&lt;usize&gt;&gt;,
+}
+
+pub struct IndexMeta {
+    pub name: String,
+    pub columns: Vec&lt;usize&gt;,
+    pub is_unique: bool,
+}
+<span class="boring">}</span></code></pre>
+<p>Indexes are automatically created on <code>PRIMARY KEY</code> and <code>UNIQUE</code> columns.
+User-defined indexes can be added via <code>CREATE INDEX</code> SQL or programmatically:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use heliondb::storage::btree::{Index, IndexMeta};
+
+// Create a unique index on column 0
+let mut idx = Index::new_unique("my_index", vec![0]);
+idx.insert(&amp;[Datum::Integer(42)], 0)?;
+assert!(idx.contains(&amp;[Datum::Integer(42)]));
+
+// Range scan
+let results: Vec&lt;usize&gt; = idx.scan_from(vec![Datum::Integer(10)]);
+<span class="boring">}</span></code></pre>
 <h2 id="sql-parsing"><a class="header" href="#sql-parsing">SQL Parsing</a></h2>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -308,6 +336,8 @@ let logical_plan = plan(&amp;stmts[0], &amp;engine.get_tables().await)?;
 <li><code>ALTER USER name [WITH] PASSWORD '...'</code></li>
 <li><code>GRANT {SELECT[(cols)]|INSERT[(cols)]|UPDATE[(cols)]|DELETE|ALL} ON table TO user</code></li>
 <li><code>REVOKE {SELECT[(cols)]|INSERT[(cols)]|UPDATE[(cols)]|DELETE|ALL} ON table FROM user</code></li>
+<li><code>CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (col1, col2, ...)</code></li>
+<li><code>DROP INDEX [IF EXISTS] name ON table</code></li>
 </ul>
 
                     </main>

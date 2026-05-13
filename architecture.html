@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "rust";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d0ce92a3.js";
+            window.path_to_searchindex_js = "searchindex-7a5e4ae9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-64e7334c.js"></script>
@@ -231,13 +231,24 @@
 <li>Each logical row is stored as a chain of row versions.</li>
 <li>A version is visible if it was created before the snapshot, not deleted before the snapshot, and the creator was already committed.</li>
 </ul>
+<h3 id="indexes"><a class="header" href="#indexes">Indexes</a></h3>
+<p><strong>File</strong>: <code>src/storage/btree.rs</code></p>
+<p>B-tree indexes use <code>std::collections::BTreeMap</code> for <code>O(log n)</code> point lookups and range scans. Each index maps key values (<code>Vec&lt;Datum&gt;</code>) to a set of row indices (<code>BTreeSet&lt;usize&gt;</code>).</p>
+<ul>
+<li><strong>Auto-indexing</strong>: Primary key and <code>UNIQUE</code> columns get automatic unique indexes at table creation.</li>
+<li><strong>User-defined indexes</strong>: Created via <code>CREATE INDEX</code> / <code>DROP INDEX</code> SQL.</li>
+<li><strong>Serialization</strong>: Indexes are part of <code>Table</code> and are serialized with it via bincode for WAL checkpoints and disk engine persistence.</li>
+<li><strong>Startup rebuild</strong>: After WAL replay, indexes are rebuilt from version chain data to ensure consistency.</li>
+</ul>
 <h3 id="optimistic-concurrency-control"><a class="header" href="#optimistic-concurrency-control">Optimistic Concurrency Control</a></h3>
 <p>When a transaction commits:</p>
 <ol>
 <li>Conflicts are checked against the snapshot active set.</li>
+<li>Unique constraints are checked against all unique indexes.</li>
 <li>Old versions are marked with <code>txid_max</code>.</li>
 <li>New versions are appended.</li>
 <li>All writes are appended to the WAL.</li>
+<li>Indexes are updated atomically with version chains.</li>
 </ol>
 <h3 id="wal"><a class="header" href="#wal">WAL</a></h3>
 <p><strong>File</strong>: <code>src/storage/wal.rs</code></p>
@@ -277,6 +288,8 @@
 <ul>
 <li><code>execute(engine, plan)</code> executes without permission checks.</li>
 <li><code>execute_as(engine, plan, current_user)</code> executes with column-level permission checks.</li>
+<li><strong>Index-aware SELECT</strong>: The executor pattern-matches <code>WHERE</code> clauses against available indexes. For point lookups (<code>col = val</code>), range scans (<code>col &gt; val</code>, <code>BETWEEN</code>), and <code>IN</code> lists, rows are fetched via the B-tree index instead of scanning all version chains. Falls back to full scan when no index matches.</li>
+<li><strong>Index DDL</strong>: <code>CREATE INDEX</code> and <code>DROP INDEX</code> are executed by modifying the table’s index list and repopulating from existing data.</li>
 </ul>
 <h2 id="layer-4-server--protocol"><a class="header" href="#layer-4-server--protocol">Layer 4: Server &amp; Protocol</a></h2>
 <h3 id="protocol"><a class="header" href="#protocol">Protocol</a></h3>
