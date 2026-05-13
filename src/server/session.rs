@@ -121,6 +121,7 @@ async fn process_authenticated_message(
                 Ok(result) => ServerMessage::QueryResult {
                     columns: result.columns,
                     rows: result.rows,
+                    rows_affected: result.rows_affected,
                     error: None,
                 },
                 Err(e) => ServerMessage::Error {
@@ -135,6 +136,7 @@ async fn process_authenticated_message(
         } => ServerMessage::QueryResult {
             columns: vec!["prepared_id".to_string()],
             rows: vec![vec![prepared_id.to_string()], params],
+            rows_affected: 0,
             error: None,
         },
         ClientMessage::Auth { .. } => ServerMessage::Error {

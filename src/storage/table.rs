@@ -372,13 +372,15 @@ fn types_compatible(expected: &DataType, actual: &DataType) -> bool {
         | (DataType::BigInt, DataType::Double)
         | (DataType::Real, DataType::Double)
         | (DataType::Double, DataType::Real) => true,
-        // String types are compatible
+        // String types are compatible (including VarChar(n) vs VarChar(m))
         (DataType::VarChar(_), DataType::Text)
         | (DataType::Text, DataType::VarChar(_))
+        | (DataType::VarChar(_), DataType::VarChar(_))
         | (DataType::Char(_), DataType::Text)
         | (DataType::Text, DataType::Char(_))
         | (DataType::VarChar(_), DataType::Char(_))
-        | (DataType::Char(_), DataType::VarChar(_)) => true,
+        | (DataType::Char(_), DataType::VarChar(_))
+        | (DataType::Char(_), DataType::Char(_)) => true,
         _ => false,
     }
 }

@@ -120,16 +120,14 @@ impl ClientConn {
             ServerMessage::QueryResult {
                 columns,
                 rows,
+                rows_affected,
                 error: None,
-            } => {
-                let count = rows.len() as u64;
-                Ok(QueryResult {
-                    columns,
-                    column_types: vec![],
-                    rows,
-                    rows_affected: count,
-                })
-            }
+            } => Ok(QueryResult {
+                columns,
+                column_types: vec![],
+                rows,
+                rows_affected,
+            }),
             ServerMessage::QueryResult {
                 error: Some(msg), ..
             } => Err(HelionError::Internal(msg)),

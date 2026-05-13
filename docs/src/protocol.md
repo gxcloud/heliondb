@@ -95,6 +95,7 @@ AuthResult {
 QueryResult {
     columns: Vec<String>,
     rows: Vec<Vec<String>>,
+    rows_affected: u64,
     error: Option<String>,
 }
 ```

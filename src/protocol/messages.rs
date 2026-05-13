@@ -22,6 +22,7 @@ pub enum ServerMessage {
     QueryResult {
         columns: Vec<String>,
         rows: Vec<Vec<String>>,
+        rows_affected: u64,
         error: Option<String>,
     },
     /// Prepared statement ID
@@ -102,6 +103,7 @@ mod tests {
         let msg = ServerMessage::QueryResult {
             columns: vec!["id".to_string()],
             rows: vec![vec!["1".to_string()]],
+            rows_affected: 1,
             error: None,
         };
         let bytes = bincode::serialize(&msg).unwrap();
@@ -110,10 +112,12 @@ mod tests {
             ServerMessage::QueryResult {
                 columns,
                 rows,
+                rows_affected,
                 error,
             } => {
                 assert_eq!(columns, vec!["id"]);
                 assert_eq!(rows, vec![vec!["1"]]);
+                assert_eq!(rows_affected, 1);
                 assert!(error.is_none());
             }
             _ => panic!("Wrong message type"),
