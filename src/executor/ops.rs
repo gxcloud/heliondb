@@ -622,6 +622,101 @@ pub async fn execute_as(
                 rows_affected: 1,
             })
         }
+
+        // ── Index Management ───────────────────────────────────────────
+        LogicalPlan::CreateIndex {
+            name,
+            table: table_name,
+            columns: col_names,
+            unique,
+            if_not_exists,
+        } => {
+            let tables = engine.get_tables().await;
+            let table = tables
+                .iter()
+                .find(|t| t.name == *table_name)
+                .ok_or_else(|| HelionError::TableNotFound(table_name.clone()))?;
+
+            if *if_not_exists && table.indexes.iter().any(|i| i.meta.name == *name) {
+                return Ok(QueryResult {
+                    columns: vec![],
+                    column_types: vec![],
+                    rows: vec![],
+                    rows_affected: 0,
+                });
+            }
+
+            if table.indexes.iter().any(|i| i.meta.name == *name) {
+                return Err(HelionError::IndexAlreadyExists(name.clone()));
+            }
+
+            // Resolve column names to indices
+            let col_indices: Vec<usize> = col_names
+                .iter()
+                .map(|c| {
+                    table
+                        .columns
+                        .iter()
+                        .position(|col| col.name == *c)
+                        .ok_or_else(|| HelionError::ColumnNotFound(format!("{}.{}", table_name, c)))
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            // We need to get a mutable reference to the table to add the index.
+            // Since we're outside the engine's internal write lock, we use
+            // engine's tables API. We need a method to add an index to a table.
+            // For now, we use the engine's get_tables and a direct approach.
+            let mut tables = engine.get_tables().await;
+            let table_mut = tables
+                .iter_mut()
+                .find(|t| t.name == *table_name)
+                .ok_or_else(|| HelionError::TableNotFound(table_name.clone()))?;
+
+            table_mut.add_index(name, col_indices, *unique)?;
+
+            // Write back the tables
+            *engine.tables.write().await = tables;
+
+            Ok(QueryResult {
+                columns: vec![],
+                column_types: vec![],
+                rows: vec![],
+                rows_affected: 1,
+            })
+        }
+        LogicalPlan::DropIndex {
+            name,
+            table: table_name,
+            if_exists,
+        } => {
+            let mut tables = engine.get_tables().await;
+            let table = tables
+                .iter_mut()
+                .find(|t| t.name == *table_name);
+
+            match table {
+                Some(t) => {
+                    if let Err(e) = t.drop_index(name) {
+                        if !*if_exists {
+                            return Err(e);
+                        }
+                    }
+                }
+                None => {
+                    if !*if_exists {
+                        return Err(HelionError::TableNotFound(table_name.clone()));
+                    }
+                }
+            }
+
+            *engine.tables.write().await = tables;
+            Ok(QueryResult {
+                columns: vec![],
+                column_types: vec![],
+                rows: vec![],
+                rows_affected: 1,
+            })
+        }
     }
 }
 

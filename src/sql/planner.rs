@@ -75,6 +75,18 @@ pub enum LogicalPlan {
         columns: Vec<String>,
         permission: Permission,
     },
+    CreateIndex {
+        name: String,
+        table: String,
+        columns: Vec<String>,
+        unique: bool,
+        if_not_exists: bool,
+    },
+    DropIndex {
+        name: String,
+        table: String,
+        if_exists: bool,
+    },
 }
 
 /// Plan a parsed statement against the available table schemas.
@@ -258,6 +270,40 @@ pub fn plan(statement: &HelionStatement, tables: &[Table]) -> Result<LogicalPlan
                 permission,
             })
         }
+        HelionStatement::CreateIndex {
+            name,
+            table,
+            columns,
+            unique,
+            if_not_exists,
+        } => {
+            // Resolve column names to indices
+            let table_meta = find_table(tables, table)?;
+            let col_indices: Vec<usize> = columns
+                .iter()
+                .map(|c| {
+                    table_meta.column_index(c).ok_or_else(|| {
+                        HelionError::ColumnNotFound(format!("{}.{}", table, c))
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok(LogicalPlan::CreateIndex {
+                name: name.clone(),
+                table: table.clone(),
+                columns: col_indices.iter().map(|&i| columns[i].clone()).collect(),
+                unique: *unique,
+                if_not_exists: *if_not_exists,
+            })
+        }
+        HelionStatement::DropIndex {
+            name,
+            table,
+            if_exists,
+        } => Ok(LogicalPlan::DropIndex {
+            name: name.clone(),
+            table: table.clone(),
+            if_exists: *if_exists,
+        }),
     }
 }
 

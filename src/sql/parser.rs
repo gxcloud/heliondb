@@ -71,6 +71,18 @@ pub enum HelionStatement {
         columns: Vec<String>,
         permission_type: GrantPermissionType,
     },
+    CreateIndex {
+        name: String,
+        table: String,
+        columns: Vec<String>,
+        unique: bool,
+        if_not_exists: bool,
+    },
+    DropIndex {
+        name: String,
+        table: String,
+        if_exists: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -261,6 +273,14 @@ fn parse_custom(sql: &str) -> Result<Vec<HelionStatement>> {
         return parse_grant_revoke(sql, false);
     }
 
+    if upper.starts_with("CREATE ") && upper.contains(" INDEX ") {
+        return parse_create_index(sql);
+    }
+
+    if upper.starts_with("DROP INDEX ") {
+        return parse_drop_index(sql);
+    }
+
     Err(HelionError::Parse(format!("Unsupported SQL: {}", sql)))
 }
 
@@ -293,6 +313,120 @@ fn parse_user_with_password(s: &str) -> Result<(String, String)> {
 fn find_user_in_stmt(_username: &str) -> bool {
     // Simplified: we don't have user store access from the parser
     false
+}
+
+fn parse_create_index(sql: &str) -> Result<Vec<HelionStatement>> {
+    let sql = sql.trim().trim_end_matches(';');
+    let upper = sql.to_uppercase();
+
+    let unique = upper.contains("UNIQUE");
+    let if_not_exists = upper.contains("IF NOT EXISTS");
+
+    // Extract name after "INDEX"
+    let after_index = if unique {
+        let idx = upper.find("UNIQUE INDEX").unwrap_or(upper.find("UNIQUE").unwrap())
+            + "UNIQUE".len();
+        &upper[idx..]
+    } else {
+        &upper[upper.find("INDEX").unwrap() + "INDEX".len()..]
+    };
+    let after_index = after_index.trim();
+
+    let (name_rest, if_not_exists_offset) = if if_not_exists {
+        if let Some(rest) = after_index.strip_prefix("IF NOT EXISTS ") {
+            (rest, true)
+        } else {
+            (after_index, false)
+        }
+    } else {
+        (after_index, false)
+    };
+
+    let parts: Vec<&str> = name_rest.splitn(2, |c: char| c.is_whitespace()).collect();
+    if parts.is_empty() {
+        return Err(HelionError::Parse("Expected index name".into()));
+    }
+    let name = parts[0].to_string();
+
+    // Find "ON" keyword and table name
+    let on_pos = upper.find(" ON ");
+    let table_rest = match on_pos {
+        Some(pos) => sql[on_pos + 4..].trim().to_string(),
+        None => return Err(HelionError::Parse("Expected ON table_name (col1, col2)".into())),
+    };
+
+    // Extract table name and column list
+    let paren_pos = table_rest.find('(');
+    let table_name = match paren_pos {
+        Some(pos) => table_rest[..pos].trim().to_string(),
+        None => return Err(HelionError::Parse("Expected column list in parentheses".into())),
+    };
+
+    let col_list = match paren_pos {
+        Some(pos) => {
+            let end = table_rest.rfind(')').ok_or_else(|| {
+                HelionError::Parse("Expected closing parenthesis".into())
+            })?;
+            table_rest[pos + 1..end].trim().to_string()
+        }
+        None => return Err(HelionError::Parse("Expected column list".into())),
+    };
+
+    let columns: Vec<String> = col_list
+        .split(',')
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+
+    if columns.is_empty() {
+        return Err(HelionError::Parse("Expected at least one column for index".into()));
+    }
+
+    Ok(vec![HelionStatement::CreateIndex {
+        name,
+        table: table_name,
+        columns,
+        unique,
+        if_not_exists: if_not_exists || if_not_exists_offset,
+    }])
+}
+
+fn parse_drop_index(sql: &str) -> Result<Vec<HelionStatement>> {
+    let sql = sql.trim().trim_end_matches(';');
+    let upper = sql.to_uppercase();
+
+    let if_exists = upper.contains("IF EXISTS");
+
+    let after_drop = if if_exists {
+        upper
+            .strip_prefix("DROP INDEX IF EXISTS ")
+            .or_else(|| upper.strip_prefix("drop index if exists "))
+            .unwrap_or("")
+    } else {
+        upper
+            .strip_prefix("DROP INDEX ")
+            .or_else(|| upper.strip_prefix("drop index "))
+            .unwrap_or("")
+    }
+    .trim()
+    .to_string();
+
+    // Split on ON to get index name and table
+    let on_pos = after_drop.find(" ON ");
+    let name = match on_pos {
+        Some(pos) => after_drop[..pos].trim().to_string(),
+        None => return Err(HelionError::Parse("Expected ON table_name".into())),
+    };
+    let table = match on_pos {
+        Some(pos) => after_drop[pos + 4..].trim().to_string(),
+        None => return Err(HelionError::Parse("Expected table name after ON".into())),
+    };
+
+    Ok(vec![HelionStatement::DropIndex {
+        name,
+        table,
+        if_exists,
+    }])
 }
 
 fn parse_grant_revoke(sql: &str, is_grant: bool) -> Result<Vec<HelionStatement>> {
@@ -1388,5 +1522,86 @@ fn test_parse_alter_table_engine() {
             assert_eq!(engine, "memory");
         }
         _ => panic!("Expected AlterTableEngine"),
+    }
+}
+
+#[test]
+fn test_parse_create_index_basic() {
+    let sql = "CREATE INDEX idx_name ON users (email)";
+    let stmts = parse(sql).unwrap();
+    match &stmts[0] {
+        HelionStatement::CreateIndex {
+            name,
+            table,
+            columns,
+            unique,
+            if_not_exists,
+        } => {
+            assert_eq!(name, "idx_name");
+            assert_eq!(table, "users");
+            assert_eq!(columns, &["email"]);
+            assert!(!unique);
+            assert!(!if_not_exists);
+        }
+        _ => panic!("Expected CreateIndex"),
+    }
+}
+
+#[test]
+fn test_parse_create_unique_index() {
+    let sql = "CREATE UNIQUE INDEX uq_name ON users (email)";
+    let stmts = parse(sql).unwrap();
+    match &stmts[0] {
+        HelionStatement::CreateIndex { unique, .. } => {
+            assert!(unique);
+        }
+        _ => panic!("Expected CreateIndex"),
+    }
+}
+
+#[test]
+fn test_parse_create_index_if_not_exists() {
+    let sql = "CREATE INDEX IF NOT EXISTS idx ON users (a, b)";
+    let stmts = parse(sql).unwrap();
+    match &stmts[0] {
+        HelionStatement::CreateIndex {
+            columns,
+            if_not_exists,
+            ..
+        } => {
+            assert!(if_not_exists);
+            assert_eq!(columns, &["a", "b"]);
+        }
+        _ => panic!("Expected CreateIndex"),
+    }
+}
+
+#[test]
+fn test_parse_drop_index() {
+    let sql = "DROP INDEX idx_name ON users";
+    let stmts = parse(sql).unwrap();
+    match &stmts[0] {
+        HelionStatement::DropIndex {
+            name,
+            table,
+            if_exists,
+        } => {
+            assert_eq!(name, "idx_name");
+            assert_eq!(table, "users");
+            assert!(!if_exists);
+        }
+        _ => panic!("Expected DropIndex"),
+    }
+}
+
+#[test]
+fn test_parse_drop_index_if_exists() {
+    let sql = "DROP INDEX IF EXISTS idx_name ON users";
+    let stmts = parse(sql).unwrap();
+    match &stmts[0] {
+        HelionStatement::DropIndex { if_exists, .. } => {
+            assert!(if_exists);
+        }
+        _ => panic!("Expected DropIndex"),
     }
 }
