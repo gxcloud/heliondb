@@ -46,6 +46,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install ring CryptoProvider (rustls)");
+
     let cli = Cli::parse();
 
     info!("HelionDB v{} starting...", env!("CARGO_PKG_VERSION"));

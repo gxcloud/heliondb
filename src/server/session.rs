@@ -232,7 +232,6 @@ async fn send_server_message(send: &mut quinn::SendStream, msg: &ServerMessage) 
     send.write_all(&bytes)
         .await
         .map_err(|e| HelionError::Protocol(format!("Write error: {}", e)))?;
-    let _ = send.finish();
     Ok(())
 }
 

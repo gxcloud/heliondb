@@ -521,6 +521,15 @@ impl DatabaseEngine {
             return Err(err);
         }
 
+        // Auto-grant ALL to the default admin user if it exists
+        {
+            let users = self.users.read().await;
+            if users.user_exists("helion") {
+                let mut perms = self.permissions.write().await;
+                perms.grant("helion", name, Permission::All);
+            }
+        }
+
         debug!("Created table '{}'", name);
         Ok(())
     }

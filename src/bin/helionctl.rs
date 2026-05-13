@@ -50,6 +50,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install ring CryptoProvider (rustls)");
+
     let args = Args::parse();
 
     let conn = ClientConn::connect(

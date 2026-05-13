@@ -2,8 +2,7 @@ use crate::executor::ops::QueryResult;
 
 /// Print a query result to stdout.
 pub fn print_result(result: &QueryResult, expanded: bool) {
-    if result.columns.is_empty() && result.rows.is_empty() {
-        println!("(empty)");
+    if result.columns.is_empty() && result.rows.is_empty() && result.rows_affected == 0 {
         return;
     }
 

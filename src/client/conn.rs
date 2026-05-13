@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Connection, Endpoint};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use tracing::debug;
@@ -7,17 +8,16 @@ use tracing::debug;
 use crate::error::HelionError;
 use crate::executor::ops::QueryResult;
 use crate::protocol::messages::{ClientMessage, ServerMessage};
-use quinn::crypto::rustls::QuicClientConfig;
 
 /// A client connection to a HelionDB server over QUIC.
 pub struct ClientConn {
     pub connection: Connection,
-    pub token: u64,
     pub username: String,
+    password: String,
 }
 
 impl ClientConn {
-    /// Connect to a HelionDB server and authenticate.
+    /// Connect to a HelionDB server.
     pub async fn connect(
         addr: &str,
         server_name: &str,
@@ -64,53 +64,17 @@ impl ClientConn {
             .await
             .map_err(|e| HelionError::Protocol(format!("Connection failed: {}", e)))?;
 
-        debug!("Connected, authenticating as '{}'", username);
-        let token = Self::authenticate(&connection, username, password).await?;
+        debug!("Connected as '{}'", username);
 
         Ok(ClientConn {
             connection,
-            token,
             username: username.to_string(),
+            password: password.to_string(),
         })
     }
 
-    async fn authenticate(
-        connection: &Connection,
-        username: &str,
-        password: &str,
-    ) -> std::result::Result<u64, HelionError> {
-        let (mut send, mut recv) = connection
-            .open_bi()
-            .await
-            .map_err(|e| HelionError::Protocol(format!("Stream error: {}", e)))?;
-
-        let auth_msg = ClientMessage::Auth {
-            username: username.to_string(),
-            password: password.to_string(),
-        };
-        Self::send_message(&mut send, &auth_msg).await?;
-
-        let response = Self::receive_message(&mut recv).await?;
-        match response {
-            ServerMessage::AuthResult {
-                success: true,
-                token,
-                ..
-            } => {
-                debug!("Authenticated, token={}", token);
-                Ok(token)
-            }
-            ServerMessage::AuthResult {
-                success: false,
-                error: Some(msg),
-                ..
-            } => Err(HelionError::Auth(msg)),
-            ServerMessage::Error { message } => Err(HelionError::Auth(message)),
-            _ => Err(HelionError::Auth("Unexpected auth response".into())),
-        }
-    }
-
-    /// Execute a SQL query and return the result.
+    /// Execute a SQL query.
+    /// Opens a single stream, authenticates, sends the query, and reads the response.
     pub async fn query(&self, sql: &str) -> std::result::Result<QueryResult, HelionError> {
         let (mut send, mut recv) = self
             .connection
@@ -118,14 +82,41 @@ impl ClientConn {
             .await
             .map_err(|e| HelionError::Protocol(format!("Stream error: {}", e)))?;
 
+        // 1. Send Auth (don't finish — more data follows)
+        let auth_msg = ClientMessage::Auth {
+            username: self.username.clone(),
+            password: self.password.clone(),
+        };
+        Self::write_message(&mut send, &auth_msg).await?;
+
+        // 2. Read AuthResult
+        let token = match Self::read_message(&mut recv).await? {
+            ServerMessage::AuthResult {
+                success: true,
+                token,
+                ..
+            } => {
+                debug!("Authenticated, token={}", token);
+                token
+            }
+            ServerMessage::AuthResult {
+                success: false,
+                error: Some(msg),
+                ..
+            } => return Err(HelionError::Auth(msg)),
+            ServerMessage::Error { message } => return Err(HelionError::Auth(message)),
+            _ => return Err(HelionError::Auth("Unexpected auth response".into())),
+        };
+
+        // 3. Send Query (don't finish — stream drops cleanly)
         let query_msg = ClientMessage::Query {
             sql: sql.to_string(),
-            token: self.token,
+            token,
         };
-        Self::send_message(&mut send, &query_msg).await?;
+        Self::write_message(&mut send, &query_msg).await?;
 
-        let response = Self::receive_message(&mut recv).await?;
-        match response {
+        // 4. Read QueryResult
+        match Self::read_message(&mut recv).await? {
             ServerMessage::QueryResult {
                 columns,
                 rows,
@@ -154,7 +145,8 @@ impl ClientConn {
 
     // ── Protocol I/O ──────────────────────────────────────────────
 
-    async fn send_message(
+    /// Write a message to the stream without finishing the send direction.
+    async fn write_message(
         send: &mut quinn::SendStream,
         msg: &ClientMessage,
     ) -> std::result::Result<(), HelionError> {
@@ -167,11 +159,11 @@ impl ClientConn {
         send.write_all(&bytes)
             .await
             .map_err(|e| HelionError::Protocol(format!("Write error: {}", e)))?;
-        let _ = send.finish();
         Ok(())
     }
 
-    async fn receive_message(
+    /// Read a complete message from the stream.
+    async fn read_message(
         recv: &mut quinn::RecvStream,
     ) -> std::result::Result<ServerMessage, HelionError> {
         let mut len_buf = [0u8; 4];
