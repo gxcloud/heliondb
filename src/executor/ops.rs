@@ -79,50 +79,6 @@ fn resolve_index_scan(
     }
 }
 
-fn resolve_between_via_index(
-    table: &Table,
-    col_name: &str,
-    low_val: &Datum,
-    high_val: &Datum,
-    table_columns: &[crate::storage::types::ColumnMeta],
-) -> Option<Vec<usize>> {
-    let col_idx = table_columns.iter().position(|c| c.name == *col_name)?;
-    let index = table.indexes.iter().find(|idx| idx.meta.columns.contains(&col_idx))?;
-    let low = vec![low_val.clone()];
-    let high = vec![high_val.clone()];
-    let mut results = std::collections::BTreeSet::new();
-    for (_, row_idxs) in index.range(
-        std::ops::Bound::Included(low),
-        std::ops::Bound::Included(high),
-    ) {
-        for &row_idx in row_idxs {
-            results.insert(row_idx);
-        }
-    }
-    Some(results.into_iter().collect())
-}
-
-fn resolve_in_via_index(
-    table: &Table,
-    col_name: &str,
-    list: &[Datum],
-    table_columns: &[crate::storage::types::ColumnMeta],
-) -> Option<Vec<usize>> {
-    let col_idx = table_columns.iter().position(|c| c.name == *col_name)?;
-    let index = table.indexes.iter().find(|idx| idx.meta.columns.contains(&col_idx))?;
-    let mut results = std::collections::BTreeSet::new();
-    for val in list {
-        if val.is_null() {
-            continue;
-        }
-        let key = vec![val.clone()];
-        if let Some(row_idxs) = index.get(&key) {
-            results.extend(row_idxs);
-        }
-    }
-    Some(results.into_iter().collect())
-}
-
 /// Execute a plan with an optional current user (None = skip permission checks).
 pub async fn execute_as(
     engine: &DatabaseEngine,
