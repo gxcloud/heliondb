@@ -796,12 +796,36 @@ fn choose_index_for_filter(table: &Table, filter: &Expression) -> Option<(String
 
 fn remove_indexed_predicate(
     filter: Option<&Expression>,
-    _idx_name: &str,
-    _columns: &[ColumnMeta],
+    idx_name: &str,
+    columns: &[ColumnMeta],
 ) -> Option<Expression> {
-    // For now, the entire filter is removed since we matched an exact equality.
-    // In production, we'd remove only the indexed part and keep the rest.
-    None
+    let filter = filter?;
+    let conjuncts = decompose_conjunction(filter);
+    // Remove any equality predicate that matches the index's column
+    let remaining: Vec<Expression> = conjuncts
+        .into_iter()
+        .filter(|pred| !matches_indexed_predicate(pred, idx_name, columns))
+        .collect();
+    if remaining.is_empty() {
+        None
+    } else {
+        Some(recompose_conjunction(remaining))
+    }
+}
+
+/// Check if a predicate is an equality on an indexed column.
+fn matches_indexed_predicate(pred: &Expression, _idx_name: &str, columns: &[ColumnMeta]) -> bool {
+    match pred {
+        Expression::BinaryOp { left, op: BinaryOperator::Eq, right } => {
+            let col_name = match (left.as_ref(), right.as_ref()) {
+                (Expression::Column(c), Expression::Literal(_))
+                | (Expression::Literal(_), Expression::Column(c)) => c.clone(),
+                _ => return false,
+            };
+            columns.iter().any(|c| c.name.eq_ignore_ascii_case(&col_name))
+        }
+        _ => false,
+    }
 }
 
 // ── Join Algorithm Selection ─────────────────────────────

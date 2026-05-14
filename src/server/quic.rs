@@ -101,6 +101,38 @@ impl QuicServer {
     }
 
     pub async fn start(&self) -> Result<()> {
+        let (endpoint, _addr) = self.bind().await?;
+        info!("HelionDB listening on quic://{}", endpoint.local_addr().unwrap());
+
+        self.accept_loop(endpoint).await
+    }
+
+    /// Start the server on an ephemeral port (for testing).
+    /// Returns the bound address and a JoinHandle for the accept loop.
+    pub async fn start_background(&self) -> Result<(std::net::SocketAddr, tokio::task::JoinHandle<Result<()>>)> {
+        let (endpoint, bound_addr) = self.bind().await?;
+        let databases = self.databases.clone();
+        let default_db = self.default_database.clone();
+        info!("HelionDB test server listening on quic://{}", bound_addr);
+
+        let handle = tokio::spawn(async move {
+            while let Some(incoming) = endpoint.accept().await {
+                let databases = databases.clone();
+                let default_db = default_db.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = handle_incoming(incoming, databases, default_db).await {
+                        error!("Connection error: {}", e);
+                    }
+                });
+            }
+            Ok(())
+        });
+
+        Ok((bound_addr, handle))
+    }
+
+    /// Bind the QUIC endpoint and return it along with the bound address.
+    async fn bind(&self) -> Result<(quinn::Endpoint, std::net::SocketAddr)> {
         let addr: std::net::SocketAddr = self
             .addr
             .parse()
@@ -111,8 +143,9 @@ impl QuicServer {
 
         let endpoint = Endpoint::server(server_config, addr)
             .map_err(|e| HelionError::Protocol(format!("Failed to bind: {}", e)))?;
+        let bound_addr = endpoint.local_addr()
+            .map_err(|e| HelionError::Protocol(format!("Failed to get bound address: {}", e)))?;
 
-        info!("HelionDB listening on quic://{}", addr);
         info!(
             "Databases: {} (default: {})",
             self.databases
@@ -133,6 +166,11 @@ impl QuicServer {
             );
         }
 
+        Ok((endpoint, bound_addr))
+    }
+
+    /// Accept loop: runs forever accepting incoming connections.
+    async fn accept_loop(&self, endpoint: quinn::Endpoint) -> Result<()> {
         while let Some(incoming) = endpoint.accept().await {
             let databases = self.databases.clone();
             let default_db = self.default_database.clone();
@@ -142,7 +180,6 @@ impl QuicServer {
                 }
             });
         }
-
         Ok(())
     }
 

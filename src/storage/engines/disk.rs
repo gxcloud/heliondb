@@ -195,12 +195,21 @@ impl DiskEngine {
         let dir = self.table_dir(table);
         fs::create_dir_all(&dir).await?;
         let filename = format!("{}{:020}.bin", DELTA_PREFIX, txid);
-        let tmp = dir.join(format!("{}.tmp", filename));
         let final_path = dir.join(&filename);
 
+        // Idempotency: if the delta file already exists, skip (this tx was already applied)
+        if final_path.exists() {
+            return Ok(());
+        }
+
+        let tmp = dir.join(format!("{}.tmp", filename));
         let bytes =
             bincode::serialize(changes).map_err(|e| HelionError::Serialization(e.to_string()))?;
-        fs::write(&tmp, &bytes).await?;
+        // Write, fsync, then rename: ensures the file content is durable before it becomes visible
+        let mut file = fs::File::create(&tmp).await?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &bytes).await?;
+        file.sync_all().await?;
+        drop(file);
         fs::rename(&tmp, &final_path).await?;
         Ok(())
     }
@@ -220,7 +229,11 @@ impl DiskEngine {
 
         let bytes =
             bincode::serialize(table).map_err(|e| HelionError::Serialization(e.to_string()))?;
-        fs::write(&tmp, &bytes).await?;
+        // Write, fsync, then rename: ensures the file content is durable before it becomes visible
+        let mut file = fs::File::create(&tmp).await?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &bytes).await?;
+        file.sync_all().await?;
+        drop(file);
         fs::rename(&tmp, &final_path).await?;
         Ok(txid)
     }
@@ -317,7 +330,10 @@ impl StorageEngine for DiskEngine {
             .max()
             .unwrap_or_else(|| self.next_delta_id.fetch_add(1, Ordering::SeqCst));
 
-        // 1. Apply to in-memory HashMap
+        // 1. Write delta file FIRST (durability: data on disk before in-memory update)
+        self.write_delta(table, &changes, txid).await?;
+
+        // 2. Apply to in-memory HashMap
         {
             let mut tables = self.tables.write();
             let t = tables
@@ -336,8 +352,7 @@ impl StorageEngine for DiskEngine {
             }
         }
 
-        // 2. Write delta file (O(changes) instead of O(total_rows))
-        self.write_delta(table, &changes, txid).await
+        Ok(())
     }
 
     async fn snapshot_table(&self, table: &str) -> Result<Table> {

@@ -229,7 +229,8 @@ impl Ord for Datum {
             (Uuid(a), Uuid(b)) => a.cmp(b),
             (UuidV7(a), UuidV7(b)) => a.cmp(b),
             (Null, Null) => Ordering::Equal,
-            _ => unreachable!(),
+            // Fallback: compare by variant index (handles any mismatches gracefully)
+            _ => vi.cmp(&vo),
         }
     }
 }

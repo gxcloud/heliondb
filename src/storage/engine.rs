@@ -37,100 +37,38 @@ fn compute_max_txid(tables: &[Table]) -> Option<u64> {
     max_txid
 }
 
-async fn replay_users_from_wal(data_dir: &Path) -> Result<UserStore> {
-    let path = data_dir.join("helion.wal");
-    if !path.exists() {
-        return Ok(UserStore::new());
-    }
-
-    let bytes = tokio::fs::read(&path).await?;
+/// Extract user records from already-parsed WAL records (CRC already verified).
+fn replay_users_from_wal(records: &[WalRecord]) -> UserStore {
     let mut store = UserStore::new();
-    let mut offset = 0;
-
-    while offset + 8 <= bytes.len() {
-        let len_bytes: [u8; 8] = match bytes[offset..offset + 8].try_into() {
-            Ok(b) => b,
-            Err(_) => break,
-        };
-        let record_len = u64::from_le_bytes(len_bytes) as usize;
-        offset += 8;
-
-        if offset + record_len + 4 > bytes.len() {
-            break;
-        }
-
-        let data = &bytes[offset..offset + record_len];
-        offset += record_len + 4;
-
-        if let Ok(record) = bincode::deserialize::<WalRecord>(data) {
-            match record {
-                WalRecord::CreateUser {
-                    username,
-                    password_hash,
-                } => {
-                    let _ = store.insert_user(User {
-                        username,
-                        password_hash,
-                    });
-                }
-                WalRecord::DropUser { username } => {
-                    let _ = store.drop_user(&username);
-                }
-                _ => {}
+    for record in records {
+        match record {
+            WalRecord::CreateUser { username, password_hash } => {
+                let _ = store.insert_user(User { username: username.clone(), password_hash: password_hash.clone() });
             }
+            WalRecord::DropUser { username } => {
+                let _ = store.drop_user(username);
+            }
+            _ => {}
         }
     }
-
-    Ok(store)
+    store
 }
 
-async fn replay_permissions_from_wal(data_dir: &Path) -> Result<PermissionStore> {
-    let path = data_dir.join("helion.wal");
-    if !path.exists() {
-        return Ok(PermissionStore::new());
-    }
-
-    let bytes = tokio::fs::read(&path).await?;
+/// Extract permission records from already-parsed WAL records (CRC already verified).
+fn replay_permissions_from_wal(records: &[WalRecord]) -> PermissionStore {
     let mut store = PermissionStore::new();
-    let mut offset = 0;
-
-    while offset + 8 <= bytes.len() {
-        let len_bytes: [u8; 8] = match bytes[offset..offset + 8].try_into() {
-            Ok(b) => b,
-            Err(_) => break,
-        };
-        let record_len = u64::from_le_bytes(len_bytes) as usize;
-        offset += 8;
-
-        if offset + record_len + 4 > bytes.len() {
-            break;
-        }
-
-        let data = &bytes[offset..offset + record_len];
-        offset += record_len + 4;
-
-        if let Ok(record) = bincode::deserialize::<WalRecord>(data) {
-            match record {
-                WalRecord::Grant {
-                    username,
-                    table,
-                    permission,
-                } => {
-                    store.grant(&username, &table, permission);
-                }
-                WalRecord::Revoke {
-                    username,
-                    table,
-                    permission,
-                } => {
-                    store.revoke(&username, &table, &permission);
-                }
-                _ => {}
+    for record in records {
+        match record {
+            WalRecord::Grant { username, table, permission } => {
+                store.grant(username, table, permission.clone());
             }
+            WalRecord::Revoke { username, table, permission } => {
+                store.revoke(username, table, permission);
+            }
+            _ => {}
         }
     }
-
-    Ok(store)
+    store
 }
 
 pub struct DatabaseEngine {
@@ -186,7 +124,7 @@ impl DatabaseEngine {
             std::fs::create_dir_all(data_dir)?;
         }
 
-        let tables = replay_wal(data_dir).await?;
+        let (tables, wal_records) = replay_wal(data_dir).await?;
         let max_txid = compute_max_txid(&tables);
         info!(
             "Replayed WAL: {} tables restored (max txid: {:?})",
@@ -195,8 +133,8 @@ impl DatabaseEngine {
         );
 
         let catalog = Catalog::open(data_dir, default_engine).await?;
-        let users = replay_users_from_wal(data_dir).await?;
-        let permissions = replay_permissions_from_wal(data_dir).await?;
+        let users = replay_users_from_wal(&wal_records);
+        let permissions = replay_permissions_from_wal(&wal_records);
         let wal_writer = Arc::new(Mutex::new(
             WalWriter::open_with_durability(data_dir, durability).await?,
         ));
@@ -393,34 +331,7 @@ impl DatabaseEngine {
             }
         }
 
-        for (table_name, changes) in engine_changes {
-            let engine_name = self
-                .catalog
-                .table_engine_name(&table_name)
-                .unwrap_or_else(|| self.catalog.default_engine());
-            let engine = self.catalog.get_engine(&engine_name)?;
-            engine.apply_write_set(&table_name, changes).await?;
-        }
-
-        {
-            let mut tables = self.tables.write().await;
-            for (table_name, new_chains) in changes {
-                if let Some(table) = tables.iter_mut().find(|t| t.name == table_name) {
-                    table.version_chains = new_chains;
-                    // Update indexes for each write entry
-                    for entry in &tx.write_set {
-                        if entry.table_name != table_name {
-                            continue;
-                        }
-                        let old_row = tables_snapshot
-                            .get(&table_name)
-                            .and_then(|t| get_visible_row(t, entry.row_idx));
-                        table.apply_index_changes(&entry.operation, old_row, entry.row_idx)?;
-                    }
-                }
-            }
-        }
-
+        // ── WAL append FIRST (write-ahead logging: durability guarantee) ──
         {
             let mut wal = self.wal_writer.lock().await;
             for entry in &tx.write_set {
@@ -453,6 +364,36 @@ impl DatabaseEngine {
                 }
             }
             wal.append(WalRecord::Commit { txid: tx.tx_id }).await?;
+        }
+
+        // ── Apply to storage engines ────────────────────────────────────
+        for (table_name, changes) in engine_changes {
+            let engine_name = self
+                .catalog
+                .table_engine_name(&table_name)
+                .unwrap_or_else(|| self.catalog.default_engine());
+            let engine = self.catalog.get_engine(&engine_name)?;
+            engine.apply_write_set(&table_name, changes).await?;
+        }
+
+        // ── Update in-memory tables ─────────────────────────────────────
+        {
+            let mut tables = self.tables.write().await;
+            for (table_name, new_chains) in changes {
+                if let Some(table) = tables.iter_mut().find(|t| t.name == table_name) {
+                    table.version_chains = new_chains;
+                    // Update indexes for each write entry
+                    for entry in &tx.write_set {
+                        if entry.table_name != table_name {
+                            continue;
+                        }
+                        let old_row = tables_snapshot
+                            .get(&table_name)
+                            .and_then(|t| get_visible_row(t, entry.row_idx));
+                        table.apply_index_changes(&entry.operation, old_row, entry.row_idx)?;
+                    }
+                }
+            }
         }
 
         self.mvcc.commit_transaction(tx);
@@ -605,7 +546,9 @@ impl DatabaseEngine {
     pub async fn create_user(&self, username: &str, password: &str) -> Result<()> {
         let mut users = self.users.write().await;
         users.create_user(username, password)?;
-        let user = users.get_user(username).unwrap().clone();
+        let user = users.get_user(username).ok_or_else(|| {
+            HelionError::Internal(format!("Failed to find just-created user '{}'", username))
+        })?.clone();
         self.wal_writer
             .lock()
             .await
@@ -633,7 +576,9 @@ impl DatabaseEngine {
     pub async fn alter_user_password(&self, username: &str, new_password: &str) -> Result<()> {
         let mut users = self.users.write().await;
         users.update_password(username, new_password)?;
-        let user = users.get_user(username).unwrap().clone();
+        let user = users.get_user(username).ok_or_else(|| {
+            HelionError::Internal(format!("Failed to find updated user '{}'", username))
+        })?.clone();
         self.wal_writer
             .lock()
             .await
@@ -787,6 +732,12 @@ impl DatabaseEngine {
         info!("Shutting down database engine...");
         self.cancel.cancel();
         write_checkpoint(&self.data_dir, &self.tables, &self.wal_writer).await?;
+        // Rotate WAL after checkpoint so the next startup replays from a clean state
+        let mut wal = self.wal_writer.lock().await;
+        if let Err(e) = wal.rotate().await {
+            tracing::warn!("WAL rotation during shutdown failed (non-fatal): {}", e);
+        }
+        drop(wal);
         self.catalog.flush().await?;
         self.wal_writer.lock().await.flush().await?;
         Ok(())

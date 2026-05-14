@@ -159,14 +159,86 @@ pub fn evaluate_join<'a>(
                 None => Err(HelionError::ColumnNotFound(name.clone())),
             }
         }
-        // For all other expression types, flatten table_map into a combined columns list
-        // and delegate to regular evaluate()
-        _ => {
-            let mut combined_cols = Vec::new();
-            for &(_, _, columns) in table_map {
-                combined_cols.extend_from_slice(columns);
+        Expression::Literal(d) => Ok(d.clone()),
+        Expression::BinaryOp { left, op, right } => {
+            let left_val = evaluate_join(left, row, table_map)?;
+            let right_val = evaluate_join(right, row, table_map)?;
+            if left_val.is_null() || right_val.is_null() {
+                return Ok(Datum::Null);
             }
-            evaluate(expr, row, &combined_cols)
+            match op {
+                BinaryOperator::Eq => Ok(Datum::Boolean(datum_eq(&left_val, &right_val))),
+                BinaryOperator::Ne => Ok(Datum::Boolean(!datum_eq(&left_val, &right_val))),
+                BinaryOperator::Lt => Ok(Datum::Boolean(
+                    compare_datums(&left_val, &right_val) == Some(Ordering::Less),
+                )),
+                BinaryOperator::Le => Ok(Datum::Boolean(
+                    compare_datums(&left_val, &right_val)
+                        .map(|o| o != Ordering::Greater)
+                        .unwrap_or(false),
+                )),
+                BinaryOperator::Gt => Ok(Datum::Boolean(
+                    compare_datums(&left_val, &right_val) == Some(Ordering::Greater),
+                )),
+                BinaryOperator::Ge => Ok(Datum::Boolean(
+                    compare_datums(&left_val, &right_val)
+                        .map(|o| o != Ordering::Less)
+                        .unwrap_or(false),
+                )),
+                BinaryOperator::And => Ok(Datum::Boolean(datum_to_bool(&left_val) && datum_to_bool(&right_val))),
+                BinaryOperator::Or => Ok(Datum::Boolean(datum_to_bool(&left_val) || datum_to_bool(&right_val))),
+                BinaryOperator::Add => datum_arith(&left_val, &right_val, |a, b| a + b),
+                BinaryOperator::Sub => datum_arith(&left_val, &right_val, |a, b| a - b),
+                BinaryOperator::Mul => datum_arith(&left_val, &right_val, |a, b| a * b),
+                BinaryOperator::Div => datum_arith(&left_val, &right_val, |a, b| a / b),
+            }
+        }
+        Expression::UnaryOp { op, expr: inner } => {
+            let val = evaluate_join(inner, row, table_map)?;
+            match op {
+                UnaryOperator::Not => Ok(Datum::Boolean(!datum_to_bool(&val))),
+                UnaryOperator::Neg => negate_datum(&val),
+            }
+        }
+        Expression::IsNull(inner) => {
+            let val = evaluate_join(inner, row, table_map)?;
+            Ok(Datum::Boolean(val.is_null()))
+        }
+        Expression::IsNotNull(inner) => {
+            let val = evaluate_join(inner, row, table_map)?;
+            Ok(Datum::Boolean(!val.is_null()))
+        }
+        Expression::In { expr: inner, list } => {
+            let val = evaluate_join(inner, row, table_map)?;
+            Ok(Datum::Boolean(list.iter().any(|d| datum_eq(d, &val))))
+        }
+        Expression::Between { expr: inner, low, high } => {
+            let val = evaluate_join(inner, row, table_map)?;
+            let low_val = evaluate_join(low, row, table_map)?;
+            let high_val = evaluate_join(high, row, table_map)?;
+            if val.is_null() || low_val.is_null() || high_val.is_null() {
+                return Ok(Datum::Null);
+            }
+            let ge_low = compare_datums(&val, &low_val)
+                .map(|o| o != Ordering::Less)
+                .unwrap_or(false);
+            let le_high = compare_datums(&val, &high_val)
+                .map(|o| o != Ordering::Greater)
+                .unwrap_or(false);
+            Ok(Datum::Boolean(ge_low && le_high))
+        }
+        Expression::Like { expr: inner, pattern } => {
+            let val = evaluate_join(inner, row, table_map)?;
+            let s = datum_to_string(&val);
+            let regex_pattern = like_to_regex(pattern);
+            let re = regex_lite(&regex_pattern, &s);
+            Ok(Datum::Boolean(re))
+        }
+        Expression::Function { name, args } => {
+            let evaluated_args: Result<Vec<Datum>> =
+                args.iter().map(|a| evaluate_join(a, row, table_map)).collect();
+            let args = evaluated_args?;
+            evaluate_function(name, &args)
         }
     }
 }

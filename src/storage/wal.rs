@@ -155,22 +155,43 @@ impl WalWriter {
     }
 }
 
-/// Replay the WAL file to reconstruct table state.
-pub async fn replay_wal(data_dir: &Path) -> Result<Vec<Table>> {
-    let path = data_dir.join(WAL_FILE);
-    if !path.exists() {
-        return Ok(Vec::new());
+/// Replay WAL file(s) to reconstruct table state.
+/// First replays the old WAL (`.wal.old`, pre-checkpoint) if it exists,
+/// then replays the current WAL (checkpoint + subsequent changes).
+/// Returns (tables, all_records) where all_records contains every
+/// successfully-deserialized WalRecord from both files.
+pub async fn replay_wal(data_dir: &Path) -> Result<(Vec<Table>, Vec<WalRecord>)> {
+    let mut tables: Vec<Table> = Vec::new();
+    let mut all_records: Vec<WalRecord> = Vec::new();
+
+    // Replay old WAL first (pre-checkpoint records, if rotation occurred)
+    let old_path = data_dir.join("helion.wal.old");
+    if old_path.exists() {
+        let buf = fs::read(&old_path).await?;
+        let records = replay_wal_buf(&mut tables, &buf);
+        all_records.extend(records);
     }
 
-    let mut file = fs::File::open(&path).await?;
-    let mut buf = Vec::new();
-    use tokio::io::AsyncReadExt;
-    file.read_to_end(&mut buf).await?;
+    // Replay current WAL (checkpoint record + subsequent changes)
+    let path = data_dir.join(WAL_FILE);
+    if path.exists() {
+        let buf = fs::read(&path).await?;
+        let records = replay_wal_buf(&mut tables, &buf);
+        all_records.extend(records);
+    }
 
-    let mut tables: Vec<Table> = Vec::new();
+    Ok((tables, all_records))
+}
+
+/// Replay a single WAL buffer into tables. Returns all successfully-parsed records.
+fn replay_wal_buf(tables: &mut Vec<Table>, buf: &[u8]) -> Vec<WalRecord> {
+    let mut records = Vec::new();
     let mut offset = 0;
     while offset + 8 <= buf.len() {
-        let len_bytes: [u8; 8] = buf[offset..offset + 8].try_into().unwrap();
+        let len_bytes: [u8; 8] = match buf[offset..offset + 8].try_into() {
+            Ok(b) => b,
+            Err(_) => break,
+        };
         let record_len = u64::from_le_bytes(len_bytes) as usize;
         offset += 8;
 
@@ -182,7 +203,10 @@ pub async fn replay_wal(data_dir: &Path) -> Result<Vec<Table>> {
         let data = &buf[offset..offset + record_len];
         offset += record_len;
 
-        let stored_checksum: [u8; 4] = buf[offset..offset + 4].try_into().unwrap();
+        let stored_checksum: [u8; 4] = match buf[offset..offset + 4].try_into() {
+            Ok(b) => b,
+            Err(_) => break,
+        };
         let expected = crc32fast::hash(data);
         if u32::from_le_bytes(stored_checksum) != expected {
             warn!("WAL: checksum mismatch at offset {}", offset - 4);
@@ -203,10 +227,11 @@ pub async fn replay_wal(data_dir: &Path) -> Result<Vec<Table>> {
             }
         };
 
-        apply_wal_record(&mut tables, record);
+        records.push(record.clone());
+        apply_wal_record(tables, record);
     }
 
-    Ok(tables)
+    records
 }
 
 fn apply_wal_record(tables: &mut Vec<Table>, record: WalRecord) {
@@ -251,14 +276,16 @@ fn apply_wal_record(tables: &mut Vec<Table>, record: WalRecord) {
         } => {
             if let Some(t) = tables.iter_mut().find(|t| t.name == table) {
                 if row_idx < t.version_chains.len() {
-                    let old_row = t.version_chains[row_idx]
+                    if let Some(old_row) = t.version_chains[row_idx]
                         .last()
                         .map(|v| v.row.clone())
-                        .unwrap();
-                    if let Some(old) = t.version_chains[row_idx].last_mut() {
-                        old.txid_max = txid;
+                    {
+                        if let Some(old) = t.version_chains[row_idx].last_mut() {
+                            old.txid_max = txid;
+                        }
+                        t.version_chains[row_idx].push(RowVersion::new_delete(txid, old_row));
                     }
-                    t.version_chains[row_idx].push(RowVersion::new_delete(txid, old_row));
+                    // If chain is empty (no versions), just skip the delete
                 }
             }
         }
@@ -394,7 +421,7 @@ mod tests {
 
         wal.flush().await.unwrap();
 
-        let tables = replay_wal(dir.path()).await.unwrap();
+        let (tables, _) = replay_wal(dir.path()).await.unwrap();
         assert_eq!(tables.len(), 1);
         assert_eq!(tables[0].name, "users");
         assert_eq!(tables[0].row_count(), 1);
@@ -403,7 +430,7 @@ mod tests {
     #[tokio::test]
     async fn test_wal_replay_empty() {
         let dir = setup_test_dir();
-        let tables = replay_wal(dir.path()).await.unwrap();
+        let (tables, _) = replay_wal(dir.path()).await.unwrap();
         assert_eq!(tables.len(), 0);
     }
 
@@ -444,7 +471,7 @@ mod tests {
 
         wal.flush().await.unwrap();
 
-        let tables = replay_wal(dir.path()).await.unwrap();
+        let (tables, _) = replay_wal(dir.path()).await.unwrap();
         assert_eq!(tables.len(), 1);
         let visible = tables[0].scan_visible(u64::MAX, &BTreeSet::new());
         assert_eq!(visible.len(), 1);
@@ -470,7 +497,7 @@ mod tests {
         .unwrap();
         wal.flush().await.unwrap();
 
-        let tables = replay_wal(dir.path()).await.unwrap();
+        let (tables, _) = replay_wal(dir.path()).await.unwrap();
         assert_eq!(tables.len(), 2);
     }
 
@@ -497,7 +524,7 @@ mod tests {
         }
         wal.flush().await.unwrap();
 
-        let tables = replay_wal(dir.path()).await.unwrap();
+        let (tables, _) = replay_wal(dir.path()).await.unwrap();
         assert_eq!(tables[0].row_count(), 10);
     }
 
@@ -514,7 +541,7 @@ mod tests {
         .unwrap();
         wal.flush().await.unwrap();
 
-        let tables = replay_wal(dir.path()).await.unwrap();
+        let (tables, _) = replay_wal(dir.path()).await.unwrap();
         // User records are handled by the engine, not WAL replay
         // The WAL just persists them without crashing
         assert_eq!(tables.len(), 0);
@@ -535,7 +562,7 @@ mod tests {
         wal.flush().await.unwrap();
 
         // Should not crash on replay
-        let tables = replay_wal(dir.path()).await.unwrap();
+        let (tables, _) = replay_wal(dir.path()).await.unwrap();
         assert_eq!(tables.len(), 0);
     }
 
@@ -567,7 +594,7 @@ mod tests {
         f.flush().await.unwrap();
 
         // Replay should handle the corruption gracefully
-        let tables = replay_wal(dir.path()).await.unwrap();
+        let (tables, _) = replay_wal(dir.path()).await.unwrap();
         // The valid record before the garbage should still be restored
         assert!(tables.is_empty() || tables.len() == 1);
     }

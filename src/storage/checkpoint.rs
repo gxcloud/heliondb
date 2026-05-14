@@ -66,7 +66,8 @@ pub async fn write_checkpoint(
         .collect();
     drop(tables_guard);
 
-    // Write checkpoint record to WAL
+    // Write checkpoint record to WAL (without rotating — rotation is done separately
+    // during shutdown or on a periodic schedule to keep WAL size bounded)
     let mut wal = wal_writer.lock().await;
     let record = WalRecord::Checkpoint {
         table_count,
