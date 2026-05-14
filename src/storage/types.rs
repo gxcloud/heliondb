@@ -137,6 +137,36 @@ pub enum Datum {
 // which is acceptable - BTreeMap uses Ord not Eq for uniqueness.
 impl Eq for Datum {}
 
+// Hash is implemented manually because f32/f64 don't implement Hash.
+// We use to_bits() which provides a consistent hash even for NaN values.
+impl std::hash::Hash for Datum {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            Datum::Boolean(v) => v.hash(state),
+            Datum::SmallInt(v) => v.hash(state),
+            Datum::UnsignedSmallInt(v) => v.hash(state),
+            Datum::Integer(v) => v.hash(state),
+            Datum::UnsignedInteger(v) => v.hash(state),
+            Datum::BigInt(v) => v.hash(state),
+            Datum::UnsignedBigInt(v) => v.hash(state),
+            Datum::Real(v) => v.to_bits().hash(state),
+            Datum::Double(v) => v.to_bits().hash(state),
+            Datum::VarChar(v) => v.hash(state),
+            Datum::Char(v) => v.hash(state),
+            Datum::Text(v) => v.hash(state),
+            Datum::Binary(v) => v.hash(state),
+            Datum::Date(v) => v.hash(state),
+            Datum::Time(v) => v.hash(state),
+            Datum::Timestamp(v) => v.hash(state),
+            Datum::TimestampTz(v) => v.hash(state),
+            Datum::Uuid(v) => v.hash(state),
+            Datum::UuidV7(v) => v.hash(state),
+            Datum::Null => 0u8.hash(state),
+        }
+    }
+}
+
 impl PartialOrd for Datum {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))

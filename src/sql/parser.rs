@@ -37,6 +37,7 @@ pub enum HelionStatement {
         order_by: Vec<OrderByExpr>,
         limit: Option<u64>,
         offset: Option<u64>,
+        joins: Vec<JoinClause>,
     },
     Update {
         table_name: String,
@@ -91,6 +92,21 @@ pub enum HelionStatement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum JoinType {
+    Inner,
+    Left,
+    Right,
+    Cross,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinClause {
+    pub right_table: String,
+    pub join_type: JoinType,
+    pub on_clause: Option<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum GrantPermissionType {
     Select,
     Insert,
@@ -103,6 +119,7 @@ pub enum GrantPermissionType {
 pub enum SelectColumn {
     Wildcard,
     Qualified { name: String, alias: Option<String> },
+    QualWildcard(String),
     Expr(Expression),
 }
 
@@ -121,6 +138,7 @@ pub struct OrderByExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Column(String),
+    QualifiedColumn(String, String),
     Literal(Datum),
     BinaryOp {
         left: Box<Expression>,
@@ -848,6 +866,42 @@ fn parse_engine_clause(clause: &str) -> Result<String> {
     Ok(engine.trim_matches('`').to_string())
 }
 
+fn extract_joins(from: &ast::TableWithJoins) -> Vec<JoinClause> {
+    from.joins.iter().map(|join| {
+        let right_table = match &join.relation {
+            ast::TableFactor::Table { name, .. } => name.to_string(),
+            other => format!("{:?}", other),
+        };
+        let (join_type, on_clause) = match &join.join_operator {
+            ast::JoinOperator::Inner(constraint)
+            | ast::JoinOperator::Join(constraint) => {
+                (JoinType::Inner, constraint_to_expr(constraint))
+            }
+            ast::JoinOperator::LeftOuter(constraint)
+            | ast::JoinOperator::Left(constraint) => {
+                (JoinType::Left, constraint_to_expr(constraint))
+            }
+            ast::JoinOperator::RightOuter(constraint)
+            | ast::JoinOperator::Right(constraint) => {
+                (JoinType::Right, constraint_to_expr(constraint))
+            }
+            ast::JoinOperator::CrossJoin => (JoinType::Cross, None),
+            ast::JoinOperator::FullOuter(_) => {
+                (JoinType::Inner, None)
+            }
+            _ => (JoinType::Inner, None),
+        };
+        JoinClause { right_table, join_type, on_clause }
+    }).collect()
+}
+
+fn constraint_to_expr(constraint: &ast::JoinConstraint) -> Option<Expression> {
+    match constraint {
+        ast::JoinConstraint::On(expr) => Some(sql_expr_to_expression(expr)),
+        _ => None,
+    }
+}
+
 fn convert_query(query: ast::Query) -> Result<HelionStatement> {
     let body = &*query.body;
     match body {
@@ -867,6 +921,8 @@ fn convert_query(query: ast::Query) -> Result<HelionStatement> {
                 }
             };
 
+            let joins = extract_joins(from);
+
             let columns: Vec<SelectColumn> = select
                 .projection
                 .iter()
@@ -879,7 +935,9 @@ fn convert_query(query: ast::Query) -> Result<HelionStatement> {
                         name: expr.to_string(),
                         alias: Some(alias.to_string()),
                     },
-                    ast::SelectItem::QualifiedWildcard(_, _) => SelectColumn::Wildcard,
+                    ast::SelectItem::QualifiedWildcard(obj_name, _) => {
+                        SelectColumn::QualWildcard(obj_name.to_string())
+                    }
                 })
                 .collect();
 
@@ -931,6 +989,7 @@ fn convert_query(query: ast::Query) -> Result<HelionStatement> {
                 order_by,
                 limit,
                 offset,
+                joins,
             })
         }
         _ => Err(HelionError::Parse(
@@ -942,13 +1001,13 @@ fn convert_query(query: ast::Query) -> Result<HelionStatement> {
 fn sql_expr_to_expression(expr: &ast::Expr) -> Expression {
     match expr {
         ast::Expr::Identifier(id) => Expression::Column(id.to_string()),
-        ast::Expr::CompoundIdentifier(parts) => Expression::Column(
-            parts
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join("."),
-        ),
+        ast::Expr::CompoundIdentifier(parts) => {
+            if parts.len() == 2 {
+                Expression::QualifiedColumn(parts[0].to_string(), parts[1].to_string())
+            } else {
+                Expression::Column(parts.iter().map(|p| p.to_string()).collect::<Vec<_>>().join("."))
+            }
+        }
         ast::Expr::Value(vws) => Expression::Literal(sql_value_to_datum(&vws.value)),
         ast::Expr::BinaryOp { left, op, right } => {
             let bin_op = match op {
@@ -1208,6 +1267,7 @@ mod tests {
                 order_by,
                 limit,
                 offset,
+                ..
             } => {
                 assert_eq!(table_name, "users");
                 assert_eq!(columns.len(), 2);

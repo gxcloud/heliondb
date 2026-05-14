@@ -13,6 +13,9 @@ pub enum HelionError {
     #[error("Column '{0}' not found")]
     ColumnNotFound(String),
 
+    #[error("Column '{0}' is ambiguous (exists in multiple tables)")]
+    AmbiguousColumn(String),
+
     #[error("Table '{0}' already exists")]
     TableAlreadyExists(String),
 

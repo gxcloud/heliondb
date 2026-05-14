@@ -15,6 +15,14 @@ pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Res
                 .ok_or_else(|| HelionError::ColumnNotFound(name.clone()))?;
             Ok(row.get(idx).cloned().unwrap_or(Datum::Null))
         }
+        Expression::QualifiedColumn(table, col) => {
+            // Single-table context with a qualified reference: just look up the column
+            let idx = columns
+                .iter()
+                .position(|c| c.name.eq_ignore_ascii_case(col))
+                .ok_or_else(|| HelionError::ColumnNotFound(format!("{}.{}", table, col)))?;
+            Ok(row.get(idx).cloned().unwrap_or(Datum::Null))
+        }
         Expression::BinaryOp { left, op, right } => {
             let left_val = evaluate(left, row, columns)?;
             let right_val = evaluate(right, row, columns)?;
@@ -112,6 +120,53 @@ pub fn evaluate(expr: &Expression, row: &[Datum], columns: &[ColumnMeta]) -> Res
                 args.iter().map(|a| evaluate(a, row, columns)).collect();
             let args = evaluated_args?;
             evaluate_function(name, &args)
+        }
+    }
+}
+
+/// Evaluate an expression against a combined row in a multi-table join context.
+/// table_map: vec of (table_name, offset_into_row, columns)
+pub fn evaluate_join<'a>(
+    expr: &Expression,
+    row: &[Datum],
+    table_map: &[(&str, usize, &[ColumnMeta])],
+) -> Result<Datum> {
+    match expr {
+        Expression::QualifiedColumn(table, col) => {
+            for &(tname, offset, columns) in table_map {
+                if tname.eq_ignore_ascii_case(table) {
+                    let idx = columns
+                        .iter()
+                        .position(|c| c.name.eq_ignore_ascii_case(col))
+                        .ok_or_else(|| HelionError::ColumnNotFound(format!("{}.{}", table, col)))?;
+                    return Ok(row.get(offset + idx).cloned().unwrap_or(Datum::Null));
+                }
+            }
+            Err(HelionError::ColumnNotFound(format!("{}.{}", table, col)))
+        }
+        Expression::Column(name) => {
+            let mut found: Option<usize> = None;
+            for &(_, offset, columns) in table_map {
+                if let Some(idx) = columns.iter().position(|c| c.name.eq_ignore_ascii_case(name)) {
+                    if found.is_some() {
+                        return Err(HelionError::AmbiguousColumn(name.clone()));
+                    }
+                    found = Some(offset + idx);
+                }
+            }
+            match found {
+                Some(idx) => Ok(row.get(idx).cloned().unwrap_or(Datum::Null)),
+                None => Err(HelionError::ColumnNotFound(name.clone())),
+            }
+        }
+        // For all other expression types, flatten table_map into a combined columns list
+        // and delegate to regular evaluate()
+        _ => {
+            let mut combined_cols = Vec::new();
+            for &(_, _, columns) in table_map {
+                combined_cols.extend_from_slice(columns);
+            }
+            evaluate(expr, row, &combined_cols)
         }
     }
 }
