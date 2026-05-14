@@ -8,5 +8,6 @@
 - [SQL Reference](sql-reference.md)
 - [API Reference](api.md)
 - [Wire Protocol](protocol.md)
+- [Structured Query Protocol](structured-query.md)
 - [Contributing](contributing.md)
 - [Troubleshooting](troubleshooting.md)

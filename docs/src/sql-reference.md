@@ -52,8 +52,10 @@ Narrowing conversions (e.g., `BIGINT` → `INTEGER`) are NOT automatic and will 
 
 ```sql
 CREATE TABLE [IF NOT EXISTS] name (
-    column_name data_type [PRIMARY KEY] [NOT NULL] [UNIQUE] [DEFAULT expr],
-    ...
+    column_name data_type [PRIMARY KEY] [NOT NULL] [UNIQUE] [DEFAULT expr]
+        [REFERENCES parent_table(parent_column)],
+    ...,
+    [FOREIGN KEY (col) REFERENCES parent_table(parent_col)]
 ) [ENGINE = memory | disk]
 ```
 
@@ -61,6 +63,7 @@ CREATE TABLE [IF NOT EXISTS] name (
 - `UNIQUE` creates a unique index on the column
 - `NOT NULL` rejects null insertions/updates
 - `DEFAULT expr` — only literal defaults supported
+- `REFERENCES` / `FOREIGN KEY` declares a foreign key relationship (not enforced, used for auto-join resolution)
 - `ENGINE` defaults to the server's `--default-engine` setting
 
 ### DROP TABLE
@@ -92,7 +95,11 @@ INSERT INTO name [(col1, col2, ...)] VALUES (val1, val2, ...), (val1, val2, ...)
 
 ```sql
 SELECT [col1, col2, ... | *]
-FROM name
+FROM table_name
+[JOIN table_name ON condition]
+[LEFT JOIN table_name ON condition]
+[RIGHT JOIN table_name ON condition]
+[CROSS JOIN table_name]
 [WHERE expr]
 [ORDER BY col [ASC | DESC] [, ...]]
 [LIMIT n]
@@ -102,8 +109,33 @@ FROM name
 - `WHERE` supports `=`, `<>`, `<`, `>`, `<=`, `>=`, `AND`, `OR`, `NOT`, `IN`, `BETWEEN`, `LIKE`, `IS NULL`, `IS NOT NULL`
 - `ORDER BY` supports multiple columns and mixed directions
 - `LIKE`: `%` matches any sequence, `_` matches any single character
+- Qualified column references (`table.column`) are supported; unqualified references error on ambiguity
 - Aggregates (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) in the column list apply to the whole result set
 - No `GROUP BY` support yet; all aggregates are over the full filtered set
+
+### JOIN Types
+
+| Type | Description |
+|------|-------------|
+| `INNER JOIN` / `JOIN` | Returns rows when there's a match in both tables |
+| `LEFT JOIN` | Returns all rows from the left table, with NULLs for non-matching right rows |
+| `RIGHT JOIN` | Returns all rows from the right table, with NULLs for non-matching left rows |
+| `CROSS JOIN` | Returns the cartesian product of both tables (no ON clause) |
+
+### Join Algorithms
+
+HelionDB automatically selects the best join algorithm based on indexes and query structure:
+
+| Algorithm | Condition | Complexity |
+|-----------|-----------|------------|
+| **Nested-Loop Join** (NLJ) | Default fallback — works for any ON predicate | O(n × m) |
+| **Index Nested-Loop Join** (INLJ) | Right table has an index on the join key | O(n × log m) |
+| **Hash Join** | Equi-join on unindexed columns | O(n + m) |
+
+Use `EXPLAIN` to see which algorithm is selected:
+```sql
+EXPLAIN SELECT * FROM users JOIN orders ON users.id = orders.user_id;
+```
 
 ### UPDATE
 

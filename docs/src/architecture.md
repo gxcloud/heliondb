@@ -125,6 +125,31 @@ A background task writes a full snapshot of all tables periodically. On restart,
 - Resolves column names against table schemas.
 - Type-checks `INSERT` and `UPDATE` values.
 
+### Query Optimizer
+
+The planner runs three optimizer passes on every SELECT query:
+
+**1. Predicate Pushdown** — moves `WHERE` filter conditions as close to the table scan as possible. Single-table predicates are pushed into the `TableScan` node, reducing the number of rows that reach the join phase.
+
+**2. Index Selection** — for `TableScan` nodes with pushed-down equality filters (`col = value`), checks if the column has an index. If so, converts to an index scan (`index_name` + `index_keys` on the `TableScan`), providing O(log n) access instead of O(n) full scan.
+
+**3. Join Algorithm Selection** — for each `Join` node, chooses the best algorithm based on available indexes and the ON clause structure:
+
+```
+Decision logic:
+  ├─ ON clause is an equi-join AND right table has index on join key
+  │   → Index Nested-Loop Join (O(n × log m))
+  ├─ ON clause is an equi-join (no index)
+  │   → Hash Join (O(n + m), builds the smaller table)
+  └─ Otherwise
+      → Nested-Loop Join (O(n × m))
+```
+
+Use `EXPLAIN` to see which plan is produced:
+```sql
+EXPLAIN SELECT * FROM users JOIN orders ON users.id = orders.user_id;
+```
+
 ## Layer 3: Executor
 
 ### Expression Evaluator
@@ -143,6 +168,131 @@ A background task writes a full snapshot of all tables periodically. On restart,
 - `execute_as(engine, plan, current_user)` executes with column-level permission checks.
 - **Index-aware SELECT**: The executor pattern-matches `WHERE` clauses against available indexes. For point lookups (`col = val`), range scans (`col > val`, `BETWEEN`), and `IN` lists, rows are fetched via the B-tree index instead of scanning all version chains. Falls back to full scan when no index matches.
 - **Index DDL**: `CREATE INDEX` and `DROP INDEX` are executed by modifying the table's index list and repopulating from existing data.
+- **Join execution**: The executor walks the plan tree recursively. For `Join` nodes, it dispatches to one of three algorithms based on the `JoinAlgorithm` chosen by the optimizer.
+
+### Query Engine Architecture
+
+```text
+                    ┌─────────────────────┐
+                    │   StructuredQuery    │ (JSON from client)
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │  Query Builder       │
+                    │  (protocol/          │
+                    │   structured.rs)     │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐    ┌─────────────────────┐
+                    │  Plan Tree           │◄───│  SQL→Parse→Plan     │
+                    │  (LogicalPlan enum)  │    │  (sql/planner.rs)   │
+                    └─────────┬───────────┘    └─────────────────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │  Optimizer           │
+                    │  (predicate pushdown,│
+                    │   index selection,   │
+                    │   join algorithm)    │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │  Executor            │
+                    │  (tree walker)       │
+                    └─────────┬───────────┘
+                              │
+                    ┌─────────▼───────────┐
+                    │  Storage Engine      │
+                    │  (MVCC + WAL)        │
+                    └─────────────────────┘
+```
+
+Both SQL and structured queries produce the same `LogicalPlan` tree and go through the same execution path.
+
+### Plan Tree (LogicalPlan)
+
+The `LogicalPlan` is a recursive enum where each node wraps its input:
+
+```text
+Projection { columns: [0, 4], table_map }
+  └── Limit { limit: 10, offset: 0 }
+        └── Sort { order_by: [Column("name")] }
+              └── Filter { predicate: Column("age") > 18 }
+                    └── Join { type: Left, algorithm: NLJ }
+                          ├── TableScan("users")
+                          └── TableScan("orders")
+```
+
+### Join Algorithms
+
+#### Nested-Loop Join (NLJ)
+The default algorithm. For each row in the left table, scans all rows in the right table and evaluates the ON predicate.
+
+```
+for each left_row:
+    for each right_row:
+        if ON(left_row, right_row):
+            emit concat(left_row, right_row)
+```
+
+#### Index Nested-Loop Join (INLJ)
+When the right table has an index on the join key, uses it for O(log n) probe instead of O(n) scan.
+
+```
+for each left_row:
+    key = extract_key(left_row, outer_key_indices)
+    for each row_idx in index.get(key):
+        if ON_remaining(left_row, right_row):
+            emit concat(left_row, right_row)
+```
+
+#### Hash Join
+For equi-joins without an index. Builds a hash table from the smaller table, then probes with the larger table.
+
+```
+// Build phase (smaller table)
+for each build_row:
+    hash_table.insert(key(build_row), build_row)
+
+// Probe phase (larger table)
+for each probe_row:
+    for each match in hash_table.get(key(probe_row)):
+        if ON_remaining(probe_row, match):
+            emit concat_or_swap(probe_row, match)
+```
+
+### Structured Query Protocol
+
+**File**: `src/protocol/structured.rs`
+
+The structured query protocol provides a JSON-based Prisma-style API. Key components:
+
+- **`StructuredQuery`** — top-level enum tagged by `"op"`: `findMany`, `findUnique`, `create`, `update`, `delete`, `upsert`
+- **Where parser** — converts Prisma-style JSON conditions (`{ "age": { "gt": 18 } }`) into `Expression` AST nodes
+- **Plan builder** — constructs `LogicalPlan` trees directly from structured queries (no SQL parsing)
+- **Relationship resolver** — given an `include: [{ relation: "orders" }]`, looks up foreign key metadata and auto-generates JOINs
+- **Nested JSON builder** — groups flat result rows into nested objects per relationship
+
+### Relationship / Foreign Key System
+
+**Files**: `src/storage/types.rs` (ColumnMeta), `src/sql/parser.rs` (FK parsing)
+
+Foreign key metadata is parsed from `CREATE TABLE` statements and stored per-column:
+
+```rust
+pub struct ColumnMeta {
+    pub name: String,
+    pub data_type: DataType,
+    // ...
+    pub references: Option<ForeignKeyInfo>,
+}
+
+pub struct ForeignKeyInfo {
+    pub foreign_table: String,
+    pub foreign_column: String,
+}
+```
+
+The relationship resolver uses this metadata to auto-generate JOINs when a structured query includes `include: [{ relation: "orders" }]`. A convention-based fallback (`parent_table_id` → `parent_table.id`) handles cases where the FK was defined without the `REFERENCES` syntax.
 
 ## Layer 4: Server & Protocol
 
@@ -389,27 +539,28 @@ engine.commit(tx)
 │     Marks old versions with txid_max
 │     Appends new RowVersions
 │
-├─ 4. StorageEngine::apply_write_set(table, changes)
-│     Engine-specific persistence:
-│       MemoryEngine: direct in-memory mutation
-│       DiskEngine: clone table → mutate → persist to table.bin
-│
-├─ 5. Update in-memory tables + indexes
-│     Replace version chains with computed ones
-│     Update B-tree index entries
-│
-├─ 6. WalWriter::append(record) × N
+├─ 4. WalWriter::append(record) × N  (WRITE-AHEAD: FIRST)
 │     One WAL record per Insert/Update/Delete operation
 │     Serializes → computes CRC32 → appends to helion.wal
+│     (fsync per write in sync mode, batched in async mode)
 │
-├─ 7. WalWriter::append(Commit { tx.tx_id })
+├─ 5. WalWriter::append(Commit { tx.tx_id })
 │     Commit marker signals transaction durability
+│
+├─ 6. StorageEngine::apply_write_set(table, changes)
+│     Engine-specific persistence:
+│       MemoryEngine: direct in-memory mutation
+│       DiskEngine: write delta file with fsync + atomic rename
+│
+├─ 7. Update in-memory tables + indexes
+│     Replace version chains with computed ones
+│     Update B-tree index entries
 │
 └─ 8. MvccStore::commit_transaction(tx)
       Removes tx_id from active_txns set
 ```
 
-Steps 1-5 are reverted on error (no WAL written → no persistence). Steps 6-7 are the durability point — if the process crashes after step 7, the WAL will replay the committed writes.
+The WAL is written **before** the storage engine (write-ahead logging). If the process crashes after the WAL write but before the engine write, the WAL will replay the committed writes on restart. Steps 1-3 are reverted on error (no WAL written → no persistence).
 
 ### Engine Migration (ALTER TABLE ... ENGINE)
 

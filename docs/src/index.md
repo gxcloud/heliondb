@@ -42,6 +42,13 @@ HelionDB is a networked SQL database with pluggable per-table storage engines, M
 | Implicit type coercion | ✅ |
 | Transactions (`BEGIN`/`COMMIT`/`ROLLBACK`) | ✅ |
 | MVCC snapshot isolation | ✅ |
+| `JOIN` (`INNER`, `LEFT`, `RIGHT`, `CROSS`) | ✅ |
+| `FOREIGN KEY` / `REFERENCES` | ✅ (parsed and stored) |
+| Three join algorithms (NLJ, INLJ, Hash) | ✅ (auto-selected) |
+| Predicate pushdown optimization | ✅ |
+| Index selection optimization | ✅ |
+| Prisma-style structured query protocol | ✅ (findMany, create, update, delete, upsert) |
+| Auto-JOIN via `include` + foreign keys | ✅ |
 
 ## Quick Start
 
@@ -70,6 +77,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Understanding the internals?** Dive into the [Architecture](architecture.md) (MVCC, WAL, commit pipeline)
 - **Writing SQL?** Check the [SQL Reference](sql-reference.md) for syntax and type coercion rules
 - **Building an application?** Use the [API Reference](api.md) for library documentation
-- **Implementing a client?** Study the [Wire Protocol](protocol.md)
+- **Implementing a client?** Study the [Wire Protocol](protocol.md) and [Structured Query Protocol](structured-query.md) for the Prisma-style JSON API
 - **Contributing code?** Read the [Contributing Guide](contributing.md) for development workflow
 - **Fixing a problem?** Search the [Troubleshooting Guide](troubleshooting.md) for common issues

@@ -109,6 +109,30 @@ Prepared {
 }
 ```
 
+#### `StructuredQuery`
+
+```rust
+StructuredQuery {
+    query_json: String,
+    token: u64,
+}
+```
+
+`query_json` is a JSON string containing a Prisma-style structured query. See the [Structured Query Protocol](structured-query.md) for the full specification.
+
+### Server → Client
+
+#### `StructuredResult`
+
+```rust
+StructuredResult {
+    data_json: String,
+    error: Option<String>,
+}
+```
+
+Response to `StructuredQuery`. `data_json` contains nested JSON data (objects with arrays for included relations).
+
 #### `Error`
 
 ```rust
