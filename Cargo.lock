@@ -675,6 +675,7 @@ dependencies = [
  "rustls-pemfile",
  "rustyline",
  "serde",
+ "serde_json",
  "sqlparser",
  "tempfile",
  "thiserror 2.0.18",

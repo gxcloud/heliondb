@@ -18,6 +18,11 @@ pub enum ClientMessage {
         password: String,
         database: String,
     },
+    /// Prisma-style structured query (JSON string)
+    StructuredQuery {
+        query_json: String,
+        token: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +42,11 @@ pub enum ServerMessage {
     AuthResult {
         success: bool,
         token: u64,
+        error: Option<String>,
+    },
+    /// Structured query result (JSON string with nested data)
+    StructuredResult {
+        data_json: String,
         error: Option<String>,
     },
 }

@@ -334,6 +334,12 @@ impl From<&str> for Datum {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ForeignKeyInfo {
+    pub foreign_table: String,
+    pub foreign_column: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ColumnMeta {
     pub name: String,
     pub data_type: DataType,
@@ -341,6 +347,7 @@ pub struct ColumnMeta {
     pub is_primary_key: bool,
     pub is_unique: bool,
     pub default: Option<Datum>,
+    pub references: Option<ForeignKeyInfo>,
 }
 
 impl ColumnMeta {
@@ -352,7 +359,16 @@ impl ColumnMeta {
             is_primary_key: false,
             is_unique: false,
             default: None,
+            references: None,
         }
+    }
+
+    pub fn references(mut self, foreign_table: &str, foreign_column: &str) -> Self {
+        self.references = Some(ForeignKeyInfo {
+            foreign_table: foreign_table.to_string(),
+            foreign_column: foreign_column.to_string(),
+        });
+        self
     }
 
     pub fn not_null(mut self) -> Self {

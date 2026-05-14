@@ -322,6 +322,17 @@ async fn process_authenticated_message(
                 },
             }
         }
+        ClientMessage::StructuredQuery { query_json, .. } => {
+            match execute_structured_sql(query_json, engine, Some(username)).await {
+                Ok(data_json) => ServerMessage::StructuredResult {
+                    data_json,
+                    error: None,
+                },
+                Err(e) => ServerMessage::Error {
+                    message: e.to_string(),
+                },
+            }
+        }
         ClientMessage::Auth { .. } => ServerMessage::Error {
             message: "Already authenticated".into(),
         },
@@ -480,6 +491,17 @@ async fn send_error(send: &mut quinn::SendStream, message: &str) -> Result<()> {
         message: message.to_string(),
     };
     send_server_message(send, &msg).await
+}
+
+async fn execute_structured_sql(
+    query_json: &str,
+    engine: &DatabaseEngine,
+    username: Option<&str>,
+) -> std::result::Result<String, HelionError> {
+    use crate::protocol::structured::{execute_structured, StructuredQuery};
+    let query: StructuredQuery = serde_json::from_str(query_json)
+        .map_err(|e| HelionError::Parse(format!("Structured query parse error: {}", e)))?;
+    execute_structured(engine, &query, username).await
 }
 
 async fn send_server_message(send: &mut quinn::SendStream, msg: &ServerMessage) -> Result<()> {

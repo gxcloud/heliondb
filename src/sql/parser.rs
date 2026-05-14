@@ -3,7 +3,7 @@ use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser as SqlParser;
 
 use crate::error::{HelionError, Result};
-use crate::storage::types::{ColumnMeta, DataType, Datum};
+use crate::storage::types::{ColumnMeta, DataType, Datum, ForeignKeyInfo};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HelionStatement {
@@ -628,10 +628,42 @@ fn convert_statement(stmt: SqlStatement) -> Result<HelionStatement> {
                                 meta.default = Some(d);
                             }
                         }
+                        ast::ColumnOption::ForeignKey {
+                            foreign_table,
+                            referred_columns,
+                            ..
+                        } => {
+                            if let Some(ref_col) = referred_columns.first() {
+                                meta.references = Some(ForeignKeyInfo {
+                                    foreign_table: foreign_table.to_string(),
+                                    foreign_column: ref_col.to_string(),
+                                });
+                            }
+                        }
                         _ => {}
                     }
                 }
                 cols.push(meta);
+            }
+            // Process table-level constraints (FOREIGN KEY (col) REFERENCES parent(pcol))
+            for constraint in &ct.constraints {
+                if let ast::TableConstraint::ForeignKey {
+                    columns,
+                    foreign_table,
+                    referred_columns,
+                    ..
+                } = constraint
+                {
+                    for (col_ident, ref_ident) in columns.iter().zip(referred_columns.iter()) {
+                        let col_name = col_ident.to_string();
+                        if let Some(existing) = cols.iter_mut().find(|c: &&mut ColumnMeta| c.name.eq_ignore_ascii_case(&col_name)) {
+                            existing.references = Some(ForeignKeyInfo {
+                                foreign_table: foreign_table.to_string(),
+                                foreign_column: ref_ident.to_string(),
+                            });
+                        }
+                    }
+                }
             }
             Ok(HelionStatement::CreateTable {
                 name: table_name,
